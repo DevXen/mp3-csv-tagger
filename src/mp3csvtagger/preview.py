@@ -32,6 +32,19 @@ from .tags import frame_for_tag_name
 #: preview; presence is all a change decision needs.
 COVER_PRESENT = "[cover image]"
 
+#: Source name recorded on a candidate the user typed into the preview
+#: by hand (an inline manual edit). It shows up wherever a candidate's
+#: source is displayed — including the change log's Source column — so
+#: a hand-typed value is always distinguishable from a CSV value.
+MANUAL_SOURCE = "manual edit"
+
+#: Layer number for manual edits. Real CSV layers are numbered by their
+#: position in the project and virtual layers start at 1000 (see
+#: :func:`add_value_layer`), so a layer of a million sorts a manual edit
+#: after every value any layer could produce: the value the user typed
+#: most recently is the one that wins.
+MANUAL_LAYER = 1_000_000
+
 
 def pseudo_column_name(tag_name: str) -> str | None:
     """Canonical pseudo-column name for *tag_name*, or ``None``.
@@ -65,6 +78,11 @@ class Candidate:
     #: Full path of the source CSV ("" for virtual layers); cover-art
     #: values are image paths resolved relative to this file's folder.
     csv_path: str = ""
+    #: True only for a value the user typed into the preview by hand
+    #: (see :meth:`Cell.set_manual_edit`). Manual candidates are kept
+    #: distinct from layered candidates so they can be replaced or
+    #: cleared without disturbing the values the layers produced.
+    manual: bool = False
 
 
 @dataclass
@@ -102,6 +120,53 @@ class Cell:
                 return
         self.candidates.append(candidate)
         self.selected = len(self.candidates) - 1
+
+    @property
+    def manual_candidate(self) -> Candidate | None:
+        """The manual-edit candidate on this cell, or ``None``.
+
+        At most one manual candidate ever exists per cell —
+        :meth:`set_manual_edit` replaces it rather than stacking edits.
+        """
+        for candidate in self.candidates:
+            if candidate.manual:
+                return candidate
+        return None
+
+    def set_manual_edit(self, value: str) -> None:
+        """Record a value the user typed into this cell by hand.
+
+        Any previous manual candidate is dropped, the new value is
+        appended as a manual candidate (source :data:`MANUAL_SOURCE`,
+        layer :data:`MANUAL_LAYER`) and selected. Because a manual edit
+        is an ordinary selected candidate from this point on, Apply,
+        the change log and snapshot undo all handle it with no special
+        cases — the log simply records its source as "manual edit".
+        """
+        self.candidates = [c for c in self.candidates if not c.manual]
+        self.candidates.append(
+            Candidate(
+                value=value,
+                csv_name=MANUAL_SOURCE,
+                csv_row_index=-1,
+                layer=MANUAL_LAYER,
+                manual=True,
+            )
+        )
+        self.selected = len(self.candidates) - 1
+
+    def clear_manual_edit(self) -> None:
+        """Remove the manual edit, re-selecting the last remaining value.
+
+        The candidates the layers produced are still on the cell, so
+        clearing an edit falls back to the newest of them (the same
+        value that would have been selected had the edit never
+        happened). A no-op when the cell has no manual candidate.
+        """
+        if self.manual_candidate is None:
+            return
+        self.candidates = [c for c in self.candidates if not c.manual]
+        self.selected = len(self.candidates) - 1 if self.candidates else 0
 
 
 @dataclass

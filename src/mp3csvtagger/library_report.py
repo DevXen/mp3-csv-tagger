@@ -19,6 +19,11 @@ anything:
 suitable for the console or a file, and :func:`render_csv_report`
 formats the same findings as CSV rows (one row per affected file) for
 spreadsheet use.
+
+:func:`album_completeness` answers a third, simpler question per
+album: which of the fields a finished album should have (title,
+artist, year, cover art, …) are actually filled in, and for what share
+of the album's files?
 """
 
 from __future__ import annotations
@@ -187,6 +192,149 @@ def render_text_report(duplicates, variant_groups_list) -> str:
 CSV_REPORT_COLUMNS = (
     "Kind", "Tag", "Title", "Artist", "Normalized", "Spelling", "File",
 )
+
+
+#: The fields a complete album is expected to carry, as
+#: ``(display name, frame)`` pairs. The frame is ``None`` for Cover
+#: Art, which is not a text frame at all: presence is judged with
+#: ``Mp3File.has_cover`` instead of a tag value. "Year" is special-cased
+#: in :func:`_field_present`: either ``TYER`` or ``TDRC`` counts,
+#: because libraries in the wild use both for the release year.
+COMPLETENESS_FIELDS = [
+    ("Title", "TIT2"),
+    ("Lead Performer", "TPE1"),
+    ("Album", "TALB"),
+    ("Year", "TYER"),
+    ("Genre", "TCON"),
+    ("Track Number", "TRCK"),
+    ("Cover Art", None),
+]
+
+#: Display name for the group of files that carry no album tag at all.
+#: They still get a completeness row — an album-less file is exactly
+#: the kind of finding this report exists to surface.
+NO_ALBUM = "(no album)"
+
+
+def _field_present(mp3: Mp3File, name: str, frame: str | None) -> bool:
+    """True when *mp3* carries a non-empty value for one completeness field."""
+    if frame is None:
+        return bool(mp3.has_cover)  # Cover Art: presence, not a text value
+    if name == "Year":
+        # TYER and TDRC are both in use as the year; either one counts.
+        return bool(
+            mp3.value_for(name, frame).strip()
+            or mp3.value_for("Recording Date", "TDRC").strip()
+            or mp3.tags.get("TDRC", "").strip()
+        )
+    return bool(mp3.value_for(name, frame).strip())
+
+
+def _field_stats(members: list[Mp3File]) -> tuple[dict, float]:
+    """Per-field counts/percents for *members*, plus their mean percent."""
+    fields: dict[str, dict] = {}
+    for name, frame in COMPLETENESS_FIELDS:
+        count = sum(1 for mp3 in members if _field_present(mp3, name, frame))
+        percent = (100.0 * count / len(members)) if members else 0.0
+        fields[name] = {"count": count, "percent": percent}
+    percent = (
+        sum(field["percent"] for field in fields.values()) / len(fields)
+        if fields
+        else 0.0
+    )
+    return fields, percent
+
+
+def album_completeness(
+    files: list[Mp3File],
+    alternative_names: dict[str, str] | None = None,
+) -> dict:
+    """Measure how completely each album in *files* is tagged.
+
+    Files are grouped by album, where the group key is
+    ``(normalize(artist), normalize(album))`` — so spelling variants of
+    the same artist/album land in one group — and a file with no album
+    value groups under ``"(no album)"``. *alternative_names* is accepted
+    for symmetry with the other report functions; the field frames are
+    fixed by :data:`COMPLETENESS_FIELDS`, and values are read via
+    :meth:`Mp3File.value_for`, which finds tags stored under either the
+    friendly name or the frame id.
+
+    Returns ``{"albums": [...], "summary": {...}}``. Each album entry is
+    ``{"album", "artist", "files", "fields", "percent"}``: album/artist
+    are the as-stored spellings from the group's first file, ``fields``
+    maps each completeness field name to ``{"count", "percent"}`` (the
+    share of the album's files carrying a non-empty value), and
+    ``percent`` is the mean of the field percents. The summary carries
+    the same field stats computed over every file, plus the total file
+    and album counts. Albums are sorted by (normalised) artist, then
+    album.
+    """
+    groups: dict[tuple[str, str], list[Mp3File]] = {}
+    for mp3 in files:
+        artist = mp3.value_for(_ARTIST_NAME, _ARTIST_FRAME)
+        album = mp3.value_for("Album", "TALB")
+        key = (normalize(artist), normalize(album))
+        groups.setdefault(key, []).append(mp3)
+
+    albums: list[dict] = []
+    for (_norm_artist, _norm_album), members in sorted(groups.items()):
+        first = members[0]
+        fields, percent = _field_stats(members)
+        albums.append(
+            {
+                "album": first.value_for("Album", "TALB") or NO_ALBUM,
+                "artist": first.value_for(_ARTIST_NAME, _ARTIST_FRAME),
+                "files": len(members),
+                "fields": fields,
+                "percent": percent,
+            }
+        )
+
+    summary_fields, summary_percent = _field_stats(list(files))
+    return {
+        "albums": albums,
+        "summary": {
+            "files": len(files),
+            "albums": len(albums),
+            "fields": summary_fields,
+            "percent": summary_percent,
+        },
+    }
+
+
+def render_completeness_text(data: dict) -> str:
+    """Render :func:`album_completeness` output as a plain-text report.
+
+    One block per album — its overall percent, then each field's count
+    and percent — followed by the same figures for the whole library,
+    so both "which album needs work" and "how tagged is this library"
+    can be read off one report.
+    """
+    lines: list[str] = ["Album completeness", "==================", ""]
+
+    def render_block(heading: str, files_count: int, fields: dict, percent: float) -> None:
+        lines.append(f"{heading} ({files_count} file(s), {percent:.1f}% complete)")
+        for name, _frame in COMPLETENESS_FIELDS:
+            field = fields[name]
+            lines.append(
+                f"  {name}: {field['count']}/{files_count} ({field['percent']:.1f}%)"
+            )
+        lines.append("")
+
+    for album in data["albums"]:
+        heading = f'{album["album"]}'
+        if album["artist"]:
+            heading += f" by {album['artist']}"
+        render_block(heading, album["files"], album["fields"], album["percent"])
+    summary = data["summary"]
+    render_block(
+        f"All albums ({summary['albums']} album(s))",
+        summary["files"],
+        summary["fields"],
+        summary["percent"],
+    )
+    return "\n".join(lines).rstrip("\n") + "\n"
 
 
 def render_csv_report(duplicates, variant_groups_list) -> str:

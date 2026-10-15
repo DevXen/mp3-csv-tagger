@@ -6,7 +6,10 @@ tag, and saves once.
 Two records are written to the log folder (default ``~/mp3tagging``):
 
 * a change log, ``mp3tag_YYYYMMDD_HHMMSS.log.csv`` with the columns
-  ``Timestamp, File, Tag Name, ID3 Frame, Original/Old Value, New Value``;
+  ``Timestamp, File, Tag Name, ID3 Frame, Original/Old Value, New Value,
+  Source`` — the Source is the selected candidate's source name, so the
+  log shows which CSV (or "manual edit", or a virtual layer such as
+  "tag sync") each written value came from;
 * an undo snapshot, ``mp3tag_YYYYMMDD_HHMMSS.undo``, holding the *tags*
   each changed file had before the run — never copies of the audio, so
   even a huge run leaves a small file. See :mod:`.undo`.
@@ -32,6 +35,9 @@ LOG_HEADERS = [
     "ID3 Frame",
     "Original/Old Value",
     "New Value",
+    # Trailing on purpose: the first six columns keep the positions
+    # existing log readers expect, and the source name is extra detail.
+    "Source",
 ]
 
 
@@ -108,6 +114,14 @@ def apply_preview(
                     else:
                         audio.delall(cell.frame)
                     audio.add(create_frame(cell.frame, cell.tag_name, cell.value))
+                # The Source column is the selected candidate's source
+                # name: the CSV file name for CSV values, "manual edit"
+                # for hand-typed values, the virtual layer's name
+                # otherwise. ``changes`` only holds cells that have
+                # candidates, but stay defensive about the index anyway.
+                selected = (
+                    cell.candidates[cell.selected] if cell.candidates else None
+                )
                 log_rows.append(
                     [
                         time.strftime("%Y/%m/%d %H:%M:%S"),
@@ -116,6 +130,7 @@ def apply_preview(
                         cell.frame,
                         cell.old_value,
                         _display_value(cell),
+                        selected.csv_name if selected else "",
                     ]
                 )
                 result.tags_written += 1

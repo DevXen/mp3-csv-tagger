@@ -128,7 +128,7 @@ def test_preview_and_apply_with_layered_csvs(library, tmp_path):
     with open(result.log_file, encoding="utf-8") as handle:
         rows = list(csv.reader(handle))
     assert rows[0] == ["Timestamp", "File", "Tag Name", "ID3 Frame",
-                       "Original/Old Value", "New Value"]
+                       "Original/Old Value", "New Value", "Source"]
     genre_rows = [r for r in rows[1:] if r[2] == "Genre"]
     assert genre_rows and genre_rows[0][4] == "Rock" and genre_rows[0][5] == "Rap Metal"
 
