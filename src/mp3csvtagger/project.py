@@ -1,17 +1,14 @@
 """A project: the MP3 paths, the CSV layers and the settings for a run.
 
-The original stored projects as a SQLite database copied to a temp file
-(``.mp3p``), and its preview lived in the same database — with a commit after
-almost every single tag. That design is the main reason it was slow.
-
-This rewrite keeps a project as plain data classes and saves it as readable
-JSON (``.mp3p.json``). A preview is computed in memory in milliseconds and is
-never stored in the project at all.
+A project is plain data classes, saved as readable JSON (``.mp3p.json``)
+that you can open in any text editor, diff, or generate from a script.
+A preview is computed in memory in milliseconds and is never stored in
+the project at all.
 
 CSV entries are *layers*: they apply in list order, so when two included
 CSVs write the same tag on the same file, the later CSV's value is the one
 selected by default (the earlier value stays available as an alternative the
-user can pick, just like the original's "multiple values" dialog).
+user can pick in the preview).
 """
 
 from __future__ import annotations
@@ -26,11 +23,11 @@ from .tags import DEFAULT_ALTERNATIVE_NAMES
 
 
 class Role(enum.IntEnum):
-    """What a CSV column does. Values match the original program's."""
+    """What a CSV column does. The values are stable and used in files."""
 
     Match = 1  # row applies only to files whose current value equals the CSV value
     Write = 2  # the CSV value replaces the file's value
-    Skip = 3   # column is ignored (the original's default for new columns)
+    Skip = 3   # column is ignored (the default for new columns)
 
 
 @dataclass
@@ -41,10 +38,12 @@ class CsvTag:
     role: int = int(Role.Skip)
 
     def to_dict(self) -> dict:
+        """Serialize to a JSON-safe dict."""
         return {"name": self.name, "role": int(self.role)}
 
     @classmethod
     def from_dict(cls, data: dict) -> "CsvTag":
+        """Build an instance from a dict produced by to_dict()."""
         return cls(name=data["name"], role=int(data.get("role", Role.Skip)))
 
 
@@ -58,12 +57,13 @@ class CsvEntry:
 
     @property
     def filename(self) -> str:
+        """Base name of the file."""
         return os.path.basename(self.path)
 
     def refresh_tags(self) -> None:
         """Re-read the file's headings, keeping roles for columns that remain.
 
-        New columns start as :attr:`Role.Skip`, exactly like the original.
+        New columns start as :attr:`Role.Skip`.
         """
         headings = CsvFile(self.path).headings()
         old_roles = {tag.name: tag.role for tag in self.tags}
@@ -81,6 +81,7 @@ class CsvEntry:
         ]
 
     def to_dict(self) -> dict:
+        """Serialize to a JSON-safe dict."""
         return {
             "path": self.path,
             "included": self.included,
@@ -89,6 +90,7 @@ class CsvEntry:
 
     @classmethod
     def from_dict(cls, data: dict) -> "CsvEntry":
+        """Build an instance from a dict produced by to_dict()."""
         return cls(
             path=data["path"],
             included=bool(data.get("included", True)),
@@ -113,16 +115,19 @@ class Project:
 
     # -- MP3 paths ---------------------------------------------------------
     def add_mp3_path(self, path: str) -> None:
+        """Add a file/folder path unless it is already present."""
         path = path.replace("/", os.sep)
         if path not in self.mp3_paths:
             self.mp3_paths.append(path)
 
     def remove_mp3_path(self, path: str) -> None:
+        """Remove a path if present."""
         if path in self.mp3_paths:
             self.mp3_paths.remove(path)
 
     # -- CSV entries -------------------------------------------------------
     def add_csv_file(self, path: str) -> CsvEntry:
+        """Add a CSV file as a new layer and return its entry."""
         path = path.replace("/", os.sep)
         if any(entry.path == path for entry in self.csv_entries):
             raise ValueError(f"Another CSV entry for the same path already exists: {path}")
@@ -143,6 +148,7 @@ class Project:
 
     # -- Persistence -------------------------------------------------------
     def to_dict(self) -> dict:
+        """Serialize to a JSON-safe dict."""
         return {
             "format": "mp3csvtagger-project",
             "version": 1,
@@ -154,6 +160,7 @@ class Project:
 
     @classmethod
     def from_dict(cls, data: dict) -> "Project":
+        """Build an instance from a dict produced by to_dict()."""
         project = cls(
             mp3_paths=list(data.get("mp3_paths", [])),
             alternative_names=dict(
@@ -168,10 +175,12 @@ class Project:
         return project
 
     def save(self, path: str) -> None:
+        """Write the project as JSON to *path*."""
         with open(path, "w", encoding="utf-8") as handle:
             json.dump(self.to_dict(), handle, indent=2, ensure_ascii=False)
 
     @classmethod
     def load(cls, path: str) -> "Project":
+        """Load a project from its JSON file."""
         with open(path, encoding="utf-8") as handle:
             return cls.from_dict(json.load(handle))

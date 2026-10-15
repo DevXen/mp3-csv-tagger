@@ -2,8 +2,7 @@
 
 They build real MP3 files (a minimal silent MPEG stream with an ID3 header)
 and real CSVs in a temp folder, then check the tags on disk afterwards —
-including the layered-CSV behaviour and the custom TXXX case from the
-original program's own test files.
+including the layered-CSV behaviour and the custom TXXX case.
 """
 
 from __future__ import annotations
@@ -68,7 +67,7 @@ def library(tmp_path):
     return folder, song, other
 
 
-def test_normalize_matches_original_rule():
+def test_normalize_rule():
     assert normalize("Rage Against the Machine") == normalize("rage against the machine!")
     assert normalize("Don't Stop!") == normalize("dont stop")
     assert normalize(None) == ""
@@ -77,7 +76,7 @@ def test_normalize_matches_original_rule():
 def test_frame_resolution():
     assert frame_for_tag_name("TIT2") == "TIT2"
     assert frame_for_tag_name("Title") == "TIT2"
-    assert frame_for_tag_name("Lead Performer") == "TPE1"  # the original's mapping
+    assert frame_for_tag_name("Lead Performer") == "TPE1"  # friendly-name mapping
     assert frame_for_tag_name("Artist") == "TPE1"
     assert frame_for_tag_name("Subgenre") == "TXXX"  # unknown -> custom tag
 
@@ -125,7 +124,7 @@ def test_preview_and_apply_with_layered_csvs(library, tmp_path):
     # The unmatched file was not touched.
     assert str(ID3(other)["TCON"].text[0]) == "Jazz"
 
-    # Change log has the original's columns and the old -> new values.
+    # Change log has the documented columns and the old -> new values.
     with open(result.log_file, encoding="utf-8") as handle:
         rows = list(csv.reader(handle))
     assert rows[0] == ["Timestamp", "File", "Tag Name", "ID3 Frame",
@@ -163,7 +162,7 @@ def test_file_without_id3_header_is_scanned_not_fatal(tmp_path):
     project.add_mp3_path(folder)
     entry = project.add_csv_file(csv_path)
     set_roles(entry, **{"Title": Role.Write})
-    preview = build_preview(project)  # original program crashed on this file
+    preview = build_preview(project)  # a no-header file must not be fatal
     assert preview.files_matched == 1
     result = apply_preview(preview, log_folder=None)
     assert result.errors == []

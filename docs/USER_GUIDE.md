@@ -61,8 +61,14 @@ mp3tag_20261015_103708.log.csv
 Timestamp, File, Tag Name, ID3 Frame, Original/Old Value, New Value
 ```
 
-Keep these logs: they are the record of what every file used to say,
-and the fastest way to reverse a run by hand or with a small script.
+Keep these logs: they are the record of what every file used to say.
+
+Alongside the log, Apply writes an **undo snapshot**
+(`mp3tag_….undo`) holding the tags each changed file had before the
+run — tags only, never copies of the audio. **Undo a run…** (Apply
+tab, or `mp3csvtagger undo <file>.undo`) restores them exactly;
+files whose size or mtime changed since the run are skipped and
+reported rather than clobbered.
 
 ### 5. Setup — tag names
 
@@ -78,6 +84,34 @@ Project files (**Project menu → New/Open/Save**, `.mp3p.json`) store the
 file list, the CSV stack with everyone's roles, this name map, and the
 log folder. They are plain JSON — you can read and even edit them.
 
+## The Files-tab tools
+
+* **Export library to CSV…** — one row per file, one column per tag,
+  plus `FileName`/`FilePath`/`Folder`. Edit it in a spreadsheet and
+  feed it back with `FileName` as the Match column (those
+  pseudo-columns match locations and can never be written — the
+  program never renames files).
+* **Tags from filename/path…** — capture values from names like
+  `Artist - Title.mp3` or paths like `Artist/Album/01 - Title.mp3`
+  with a `{Tag}` pattern; captures become a normal preview.
+* **Library report…** — duplicate tracks (same Title + Lead
+  Performer) and spelling variants of a tag (same cleaned-up value,
+  different spellings). Pick the spelling to keep and the report
+  builds the fixing preview; nothing changes automatically.
+* **Role presets** (CSV tab) — save a column-role setup once
+  (`~/.mp3csvtagger/presets/*.json`) and apply it to future CSVs;
+  two presets ship built in.
+* **Cover art** — a `Cover Art` Write column embeds the image at the
+  path in each cell (relative to the CSV's folder); a blank cell
+  removes existing art. Lyrics are just a text column (`Lyrics`).
+* **Fill missing tags (MusicBrainz)…** (Preview tab, opt-in, online)
+  — fills only EMPTY fields (Album, Year, Recording Date, Genre) for
+  files that have a Title and Lead Performer, at MusicBrainz's
+  1-request-per-second limit, into the preview for your review.
+
+The in-app **Help tab** covers all of these topic by topic (the same
+text is `docs/HELP.md`).
+
 ## Command line
 
 Everything above works headless. `mp3csvtagger --help`, and each
@@ -88,9 +122,10 @@ sub-command has its own `--help`. The project flow and the one-shot
 ## Tips & limits
 
 * Matching ignores case and punctuation **only** — "The Beatles" does
-  not match "Beatles". Normalise your CSV if your library is mixed.
-* Embedded pictures (`APIC`) and private frames (`PRIV`) are never read
-  or written as text — everything else text-shaped is fair game.
+  not match "Beatles". Make your CSV agree with your library.
+* Embedded pictures are handled only through the `Cover Art` column,
+  and private frames (`PRIV`) are never read or written — everything
+  else text-shaped is fair game.
 * A file with no ID3 header is fine: it starts empty, and Apply creates
   the header when it writes.
 * Back up a small test folder first, check the change log, then run the

@@ -1,9 +1,9 @@
 # Android app — assessment and plan
 
-**Status: planned, not built.** The desktop program and CLI in this repo
-are the "real program" the 2019 original never quite became; this page is
-the honest scope for taking the same workflow to Android, so it can be
-picked up as its own piece of work instead of being promised casually.
+**Status: in development.** An Android companion is being built in this
+repo (see the `android/` folder); this page is the honest scope for
+taking the same workflow to Android, so it can be picked up as its own
+piece of work instead of being promised casually.
 
 ## Why it is not just a repackage
 

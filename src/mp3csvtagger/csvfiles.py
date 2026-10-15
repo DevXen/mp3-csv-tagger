@@ -1,6 +1,6 @@
 """Reading the CSV files that drive a tagging run.
 
-CSV format (same as the original program expected):
+CSV format:
 
 * UTF-8, comma-separated, first row is the header.
 * Each header is a tag name — a frame id (``TIT2``), a friendly name
@@ -30,6 +30,7 @@ class CsvFile:
 
     @property
     def filename(self) -> str:
+        """Base name of the file."""
         return os.path.basename(self.path)
 
     def headings(self) -> list[str]:
@@ -57,8 +58,8 @@ class CsvFile:
             width = len(headings)
             for index, row in enumerate(reader, start=1):
                 if not row or all(cell == "" for cell in row):
-                    continue  # skip blank lines, like the original did
-                # Pad/truncate ragged rows instead of crashing (original died).
+                    continue  # skip blank lines
+                # Pad/truncate ragged rows instead of crashing on them.
                 values = (row + [""] * width)[:width]
                 yield index, values
 

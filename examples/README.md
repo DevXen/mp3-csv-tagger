@@ -1,9 +1,7 @@
 # Examples
 
-A three-file sample library plus the two layered CSVs the original
-program's own log shows it was tested with (`Sample1.csv` and
-`Sample2.csv` — recreated here with plausible values; the originals were
-not in the uploaded zip).
+A three-file sample library plus two layered CSVs (`Sample1.csv` and
+`Sample2.csv`) that demonstrate the layering pattern.
 
 ```bash
 python examples/make_sample_mp3s.py
@@ -23,7 +21,7 @@ What happens:
 * **Sample1** matches every track by Lead Performer
   ("Rage Against the Machine") and writes Genre = *Rap Metal* plus a
   custom `Subgenre` field (a TXXX tag, because there is no standard
-  Subgenre frame — the original's log calls this `Custom Tag = TXXX`).
+  Subgenre frame).
 * **Sample2** is a *layer*: it matches on Genre = *Rap Metal*, a value
   that only exists because Sample1 writes it, and adds `Rating` = 5
   (another custom tag) and a Comment.

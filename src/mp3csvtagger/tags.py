@@ -1,6 +1,6 @@
 """ID3 frame bookkeeping: names, friendly aliases and frame creation.
 
-Terminology used across the whole project (same as the original program):
+Terminology used across the whole project:
 
 * **Tag name** — what a CSV column heading says, e.g. ``TIT2``, ``Title`` or
   ``My Custom Field``.
@@ -13,30 +13,27 @@ Resolution rules for a CSV heading (first hit wins):
 1. The heading *is* a known ID3 frame id (``TIT2``) → that frame.
 2. The heading matches a friendly name, case-insensitively (``title``,
    ``Lead Performer``, ``Artist``) → the mapped frame. The map is editable per
-   project (Setup tab / ``alternative_names`` in the project file); the
-   original shipped with only four entries (TPE1/TPE2/TPE3/TPUB), this rewrite
-   seeds the common ones below and still lets you override or remove any.
-3. Anything else → a custom ``TXXX`` frame whose description is the heading,
-   exactly like the original (its log is full of ``Custom Tag = TXXX``).
+   project (Setup tab / ``alternative_names`` in the project file);
+   the map below seeds the common ones and you can override or remove any.
+3. Anything else → a custom ``TXXX`` frame whose description is the heading.
 """
 
 from __future__ import annotations
 
 from mutagen import id3
 
-#: Frames that carry no editable text for our purposes. The original skipped
-#: ``PRIV`` and ``APIC`` (embedded pictures / private data) when reading.
+#: Frames that carry no editable text for our purposes, so they are skipped
+#: when reading: ``PRIV`` and ``APIC`` (private data / embedded pictures).
 IGNORED_FRAMES = {"PRIV", "APIC"}
 
-#: Friendly name -> frame id. Keys are stored in the project file in the
-#: original's orientation (frame -> friendly name); see
-#: :func:`frame_for_tag_name`.
+#: Friendly name -> frame id. The project file stores this map as
+#: frame -> friendly name; see :func:`frame_for_tag_name`.
 DEFAULT_ALTERNATIVE_NAMES: dict[str, str] = {
-    # frame: friendly name   (the original's four are marked *)
-    "TPE1": "Lead Performer",   # *
-    "TPE2": "Band",             # *
-    "TPE3": "Conductor",        # *
-    "TPUB": "Publisher",        # *
+    # frame: friendly name
+    "TPE1": "Lead Performer",
+    "TPE2": "Band",
+    "TPE3": "Conductor",
+    "TPUB": "Publisher",
     "TIT2": "Title",
     "TALB": "Album",
     "TCON": "Genre",
@@ -77,6 +74,11 @@ def frame_for_tag_name(
     name = (tag_name or "").strip()
     if not name:
         return "TXXX"
+    # Cover art is a pseudo-frame handled specially by the engine: the
+    # heading "Cover Art" means the APIC (embedded picture) frame, whose
+    # cell values are image paths rather than text (see coverart.py).
+    if name.lower() == "cover art":
+        return "APIC"
     # 1. A real frame id, e.g. "TIT2" (case-insensitive) or "TXXX:Something".
     upper = name.upper()
     if upper.startswith("TXXX:"):
@@ -90,7 +92,7 @@ def frame_for_tag_name(
             return frame.upper()
     if name.lower() in _EXTRA_ALIASES:
         return _EXTRA_ALIASES[name.lower()]
-    # 3. Unknown heading -> custom text frame, like the original.
+    # 3. Unknown heading -> custom text frame.
     return "TXXX"
 
 
@@ -102,8 +104,8 @@ def is_known_frame(tag_name: str, alternative_names: dict[str, str] | None = Non
 def frame_text(tag: object) -> str:
     """Return the text of a mutagen frame as one string (``""`` if none).
 
-    The original concatenated a frame's text list with no separator; we keep
-    that so values compare the same way they did before.
+    A frame's text list is concatenated with no separator, so a value
+    reads back exactly as one string.
     """
     text = getattr(tag, "text", None)
     if text is None:
@@ -130,15 +132,23 @@ def tag_name_and_value(tag: object) -> tuple[str, str] | None:
 def create_frame(frame_id: str, tag_name: str, value: str):
     """Build a new mutagen frame holding *value*.
 
-    Mirrors the original ``create_tag``: use the frame class's ``text``
+    Use the frame class's ``text``
     attribute when it has one, fall back to ``data`` / ``url``, and give
-    ``TXXX`` frames the original tag name as their description.
+    ``TXXX`` frames the column's tag name as their description.
     """
     frame_class = getattr(id3, frame_id, None) or id3.TXXX
     frame = frame_class()
     if isinstance(frame, id3.TXXX):
         frame.desc = tag_name
-    if getattr(frame, "text", None) is not None or hasattr(frame_class, "text"):
+    # Most text frames hold a LIST of strings, but a few (USLT lyrics is
+    # the common one) hold a single string — assigning a list there would
+    # write the literal text "['...']" into the file. Respect the type
+    # of the fresh frame's default value.
+    default_text = getattr(frame, "text", None)
+    if isinstance(default_text, str):
+        frame.text = value
+        return frame
+    if default_text is not None or hasattr(frame_class, "text"):
         frame.text = [value]
         return frame
     if hasattr(frame, "data"):

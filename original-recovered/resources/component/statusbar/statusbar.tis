@@ -1,9 +1,0 @@
-include "../basewidget.tis"
-
-class StatusBar: BaseWidget {
-
-  function _attached() {
-
-  }
-
-}

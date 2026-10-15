@@ -1,14 +1,15 @@
 """Applying a preview: writing the selected tags back into the MP3 files.
 
 For each changed file this opens the MP3 **once**, replaces each selected
-tag, and saves once — the original opened and saved through a chain of
-callbacks and wrote a database row per tag along the way.
+tag, and saves once.
 
-A change log is always written (unless disabled), in the original's format:
-``mp3tag_YYYYMMDD_HHMMSS.log.csv`` with the columns
-``Timestamp, File, Tag Name, ID3 Frame, Original/Old Value, New Value``.
-It lands in the project's log/backup folder (default ``~/mp3tagging``) and is
-your undo reference: it records exactly what every file used to say.
+Two records are written to the log folder (default ``~/mp3tagging``):
+
+* a change log, ``mp3tag_YYYYMMDD_HHMMSS.log.csv`` with the columns
+  ``Timestamp, File, Tag Name, ID3 Frame, Original/Old Value, New Value``;
+* an undo snapshot, ``mp3tag_YYYYMMDD_HHMMSS.undo``, holding the *tags*
+  each changed file had before the run — never copies of the audio, so
+  even a huge run leaves a small file. See :mod:`.undo`.
 """
 
 from __future__ import annotations
@@ -19,6 +20,7 @@ from dataclasses import dataclass, field
 
 from mutagen.id3 import ID3
 
+from . import coverart, undo
 from .csvfiles import write_csv
 from .preview import Preview
 from .tags import create_frame
@@ -35,12 +37,22 @@ LOG_HEADERS = [
 
 @dataclass
 class ApplyResult:
+    """Outcome of an apply run (counts, the files written, any errors)."""
+
     files_written: int = 0
     tags_written: int = 0
     files_unchanged: int = 0
     errors: list[str] = field(default_factory=list)
     log_file: str | None = None
+    undo_file: str | None = None
     messages: list[str] = field(default_factory=list)
+
+
+def _display_value(cell) -> str:
+    """How a cell's value appears in logs/exports (cover art is a path)."""
+    if cell.frame == "APIC":
+        return coverart.cover_display(cell.value)
+    return cell.value
 
 
 def apply_preview(
@@ -53,10 +65,15 @@ def apply_preview(
     """Write the preview's selected values to disk.
 
     ``progress(done, total, path)`` is called per file, if given. Unchanged
-    tags are skipped unless *write_unchanged* is set.
+    tags are skipped unless *write_unchanged* is set. When *log_folder* is
+    given, a change log and an undo snapshot are written there; the undo
+    snapshot is the only supported way to reverse a run, so callers that
+    want undo must pass a log folder.
     """
     result = ApplyResult()
     log_rows: list[list[str]] = []
+    undo_entries: list[dict] = []
+    stamp = time.strftime("%Y%m%d_%H%M%S")
 
     rows = [row for row in preview.rows if row.cells]
     for done, row in enumerate(rows, start=1):
@@ -71,18 +88,26 @@ def apply_preview(
             result.files_unchanged += 1
             continue
         try:
+            # Snapshot BEFORE touching the file. The snapshot stores tag
+            # frames only (plus the old cover if this run changes it) —
+            # the audio itself is never copied.
+            include_apic = any(cell.frame == "APIC" for cell in changes)
+            entry = undo.make_entry(row.path, include_apic=include_apic)
             try:
                 audio = ID3(row.path)
             except Exception:
                 audio = ID3()  # no header yet: start a new one
             for cell in changes:
-                # Remove existing frames for this tag first so a rename or a
-                # changed custom description can't leave a stale duplicate.
-                if cell.frame == "TXXX":
-                    audio.delall(f"TXXX:{cell.tag_name}")
+                if cell.frame == "APIC":
+                    _apply_cover_cell(audio, cell)
                 else:
-                    audio.delall(cell.frame)
-                audio.add(create_frame(cell.frame, cell.tag_name, cell.value))
+                    # Remove existing frames for this tag first so a
+                    # changed custom description can't leave a duplicate.
+                    if cell.frame == "TXXX":
+                        audio.delall(f"TXXX:{cell.tag_name}")
+                    else:
+                        audio.delall(cell.frame)
+                    audio.add(create_frame(cell.frame, cell.tag_name, cell.value))
                 log_rows.append(
                     [
                         time.strftime("%Y/%m/%d %H:%M:%S"),
@@ -90,11 +115,18 @@ def apply_preview(
                         cell.tag_name,
                         cell.frame,
                         cell.old_value,
-                        cell.value,
+                        _display_value(cell),
                     ]
                 )
                 result.tags_written += 1
             audio.save(row.path)
+            # The undo guard compares against the file as THIS run left
+            # it: refresh the entry's stat now that the save is done, so
+            # undo can tell "untouched since our run" from "changed".
+            entry["size"] = int(os.path.getsize(row.path))
+            entry["mtime"] = int(os.path.getmtime(row.path))
+            entry["had_no_header"] = entry.get("had_no_header", False)
+            undo_entries.append(entry)
             result.files_written += 1
             result.messages.append(f"Applying tags to {row.path}")
         except Exception as exc:  # keep going: one bad file shouldn't stop a run
@@ -103,13 +135,35 @@ def apply_preview(
 
     if log_folder is not None:
         os.makedirs(log_folder, exist_ok=True)
-        log_name = "mp3tag_" + time.strftime("%Y%m%d_%H%M%S") + ".log.csv"
+        log_name = f"mp3tag_{stamp}.log.csv"
         result.log_file = os.path.join(log_folder, log_name)
         write_csv(result.log_file, LOG_HEADERS, log_rows)
         result.messages.append(
             f"Completed. Log of old and new values: {result.log_file}"
         )
+        if undo_entries:
+            result.undo_file = os.path.join(log_folder, f"mp3tag_{stamp}.undo")
+            undo.write_undo_file(result.undo_file, undo_entries)
+            result.messages.append(f"Undo snapshot: {result.undo_file}")
     return result
+
+
+def _apply_cover_cell(audio: ID3, cell) -> None:
+    """Apply one Cover Art cell: embed the image, or remove art if blank.
+
+    The cell value is an image path, resolved relative to the folder of
+    the CSV the value came from (recorded on the selected candidate).
+    A blank value removes existing cover art — that is deliberate, is
+    shown in the preview as "[remove cover art]", and is undoable
+    because apply snapshots the old APIC frame for cover changes.
+    """
+    audio.delall("APIC")
+    if not cell.value.strip():
+        return  # removal only
+    selected = cell.candidates[cell.selected]
+    csv_dir = os.path.dirname(selected.csv_path) if selected.csv_path else None
+    image_path = coverart.resolve_image_path(cell.value, csv_dir)
+    audio.add(coverart.make_cover_frame(image_path))
 
 
 def write_preview_csv(preview: Preview, path: str) -> None:
@@ -135,7 +189,7 @@ def write_preview_csv(preview: Preview, path: str) -> None:
                     cell.tag_name,
                     cell.frame,
                     cell.old_value,
-                    cell.value,
+                    _display_value(cell),
                     "yes" if cell.changed else "no",
                     len(cell.candidates),
                     selected.csv_name if selected else "",

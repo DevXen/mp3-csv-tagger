@@ -1,7 +1,7 @@
 """MP3 CSV Tagger — bulk-edit MP3 ID3 tags from CSV files.
 
-A fast, clean-room rewrite of a 2019 Python/Sciter program. See
-``docs/ORIGINAL_PROGRAM.md`` for what the original did and why it was slow.
+Fast, small and dependency-light: the whole engine is plain Python on
+top of mutagen, and the GUI uses only the standard library.
 
 The package is split so the *engine* never depends on the GUI:
 
@@ -16,5 +16,5 @@ The package is split so the *engine* never depends on the GUI:
 * :mod:`mp3csvtagger.gui`       — Tkinter desktop app (standard library only)
 """
 
-__version__ = "1.0.0"
+__version__ = "1.2.0"
 __all__ = ["__version__"]

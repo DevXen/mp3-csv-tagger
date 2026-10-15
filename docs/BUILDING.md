@@ -20,8 +20,7 @@ engine directly.
 
 ## Windows standalone (.exe)
 
-The old distribution was "unzip 20 MB of 2019 DLLs and run the exe inside
-the pile". The modern equivalent is one PyInstaller build:
+The standalone distribution is one PyInstaller build:
 
 ```bat
 build_windows.bat

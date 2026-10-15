@@ -30,7 +30,7 @@ Every column of every CSV has exactly one role per CSV file:
 * **Write (2)** — the row's value is written to matched files.
 * **Skip (3)** — ignored.
 
-(The numbers are the original program's and appear in project files.)
+(These numbers are what project files store.)
 
 ## Matching rule
 
@@ -70,3 +70,23 @@ Rage Against the Machine,Rap Metal
 with `Lead Performer=Match, Genre=Write` sets the genre of every track
 whose lead performer matches — regardless of which album or title each
 track has.
+
+## Pseudo-columns: FileName, FilePath, Folder
+
+Three headings need no tag in the file — they describe its location:
+`FileName` (e.g. `01 Song.mp3`), `FilePath` (full path) and `Folder`
+(containing folder). They may be used as **Match** columns only; a Write
+role on them is rejected, because writing to them would mean renaming or
+moving files, which this program never does. They exist so an exported
+library CSV (see the export feature) can be edited and fed back with
+every row landing on exactly its own file.
+
+## Cover Art
+
+A column headed `Cover Art` is the one non-text column. As a **Write**
+column its cells hold image paths (`.jpg`/`.jpeg`/`.png`; relative paths
+resolve against the CSV file's own folder). Applying embeds the image as
+the front cover, replacing any existing art; a **blank cell removes**
+existing cover art. The preview shows art as `[cover image: name]` /
+`[remove cover art]` so both cases are visible before anything is
+written, and cover changes are included in the run's undo snapshot.

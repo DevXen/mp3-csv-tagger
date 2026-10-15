@@ -1,14 +1,12 @@
 """Scanning MP3 files and reading their tags, in parallel.
 
-The original scanned serially, opening each file on the UI thread, and a file
-with no ID3 header at all raised out of mutagen and killed the whole preview
-build. This version:
+Scanning is designed to stay fast and to never die on one bad file:
 
-* walks folders once and collects paths first (cheap),
-* reads tags with a thread pool — mutagen releases the GIL while reading from
-  disk often enough that this is several times faster on real libraries,
-* treats "no ID3 header" and "unreadable file" as data, not as a crash: the
-  file simply starts with no tags (applying will create the header).
+* folders are walked once and their paths collected first (cheap),
+* tags are read with a thread pool — several times faster than reading
+  serially on real libraries,
+* "no ID3 header" and "unreadable file" are treated as data, not as a
+  crash: the file simply starts with no tags (applying creates the header).
 """
 
 from __future__ import annotations
@@ -32,9 +30,14 @@ class Mp3File:
     tags: dict[str, str] = field(default_factory=dict)
     #: Set when the file could not be read at all.
     error: str | None = None
+    #: True when the file carries embedded cover art (an APIC frame). The
+    #: image bytes are deliberately NOT loaded during a scan — they are
+    #: large, and tagging decisions only need to know art is present.
+    has_cover: bool = False
 
     @property
     def filename(self) -> str:
+        """Base name of the file."""
         return os.path.basename(self.path)
 
     def value_for(self, tag_name: str, frame: str) -> str:
@@ -59,6 +62,9 @@ def read_tags(path: str) -> Mp3File:
     if audio is None:
         return result
     for frame in audio.values():
+        if getattr(frame, "FrameID", "") == "APIC":
+            result.has_cover = True
+            continue  # image data is not a text tag; see has_cover above
         pair = tag_name_and_value(frame)
         if pair is None:
             continue
