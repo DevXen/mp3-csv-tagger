@@ -1,5 +1,25 @@
 # Changelog
 
+## 1.4.0 — 2026-10-15
+
+* **Append export (desktop 1.3.0 + Android app 1.1.0)** — library
+  exports can now *merge* into an existing CSV instead of replacing
+  it, so one library CSV can be built up folder by folder: export
+  one folder, then append scans of other folders into the same
+  file. Rows are keyed by `FilePath`; a re-scanned file's row
+  updates in place (same position, fresh values, only for the
+  columns the scan produces — hand-added columns and their values
+  survive), rows outside the scan are kept untouched, new files
+  append at the end, and new tag columns are added at the end of
+  the header. If the target CSV has no `FilePath` column, rows fall
+  back to keying on the file-name column with a clear warning.
+  Desktop: `export --append` on the CLI plus "Append to an existing
+  CSV…" in the Export dialog, with an added/updated/kept summary.
+  Android: "Append to existing CSV" in the Export dialog (SAF
+  picker), same merge rules and summary; the app's export now also
+  writes the `FilePath` column (path relative to the picked folder)
+  that the merge keys on.
+
 ## 1.3.0 — 2026-10-15
 
 * **Android app (v1.0.0)** — a native Kotlin companion ships in

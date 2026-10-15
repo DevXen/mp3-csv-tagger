@@ -21,7 +21,7 @@ from tkinter import filedialog, messagebox, simpledialog, ttk
 from . import __version__, coverart, musicbrainz, presets, undo
 from .apply import apply_preview
 from .filename_tags import capture_for_file, parse_pattern
-from .library_export import write_library_csv
+from .library_export import append_library_csv, write_library_csv
 from .library_report import (
     duplicate_groups,
     render_csv_report,
@@ -589,18 +589,82 @@ class App(tk.Tk):
             self.status.config(
                 text=f"Exported {len(files)} file(s), {len(columns)} columns to {out_path}"
             )
+        elif purpose.startswith("append:"):
+            out_path = purpose[len("append:"):]
+            try:
+                summary = append_library_csv(files, out_path)
+            except Exception as exc:  # missing header, no key column, ...
+                messagebox.showerror("Append to CSV failed", str(exc))
+                return
+            lines = [
+                f"Scanned {summary.files_scanned} file(s) into {out_path}:",
+                f"Rows added: {summary.rows_added}",
+                f"Rows updated: {summary.rows_updated}",
+                f"Rows kept: {summary.rows_kept}",
+            ]
+            if summary.columns_added:
+                lines.append(
+                    f"Columns added: {', '.join(summary.columns_added)}"
+                )
+            if summary.warning:
+                lines.append(f"Warning: {summary.warning}")
+            messagebox.showinfo("Append to CSV", "\n".join(lines))
+            self.status.config(
+                text=f"Append export: {summary.rows_added} added, "
+                f"{summary.rows_updated} updated, {summary.rows_kept} kept"
+            )
         elif purpose == "filename":
             self._filename_dialog(files)
         elif purpose == "report":
             self._report_dialog(files)
 
     def _export_library(self) -> None:
-        path = filedialog.asksaveasfilename(
-            title="Export library to CSV", defaultextension=".csv",
-            filetypes=[("CSV Files", "*.csv")],
+        """Ask whether this export starts a new CSV or appends to one.
+
+        "New" replaces the chosen file with a fresh export. "Append…"
+        merges the scan into an existing library CSV (rows keyed by
+        FilePath, new tag columns added at the end) — the way a
+        library CSV gets built up folder by folder.
+        """
+        dialog = tk.Toplevel(self)
+        dialog.title("Export library to CSV")
+        ttk.Label(
+            dialog,
+            text="Export the scanned library's tags as one row per file.\n"
+                 "Start a new CSV, or append this scan into an existing "
+                 "library CSV.",
+            justify="left",
+        ).pack(padx=12, pady=(12, 6), anchor="w")
+        bar = ttk.Frame(dialog)
+        bar.pack(padx=12, pady=(0, 12), anchor="w")
+
+        def _new() -> None:
+            dialog.destroy()
+            path = filedialog.asksaveasfilename(
+                title="Export library to a new CSV", defaultextension=".csv",
+                filetypes=[("CSV Files", "*.csv")],
+            )
+            if path:
+                self._scan_for(f"export:{path}")
+
+        def _append() -> None:
+            dialog.destroy()
+            path = filedialog.askopenfilename(
+                title="Append to an existing CSV",
+                filetypes=[("CSV Files", "*.csv")],
+            )
+            if path:
+                self._scan_for(f"append:{path}")
+
+        ttk.Button(bar, text="Export to a new CSV…", command=_new).pack(
+            side="left", padx=2
         )
-        if path:
-            self._scan_for(f"export:{path}")
+        ttk.Button(bar, text="Append to an existing CSV…", command=_append).pack(
+            side="left", padx=2
+        )
+        ttk.Button(bar, text="Cancel", command=dialog.destroy).pack(
+            side="left", padx=2
+        )
 
     def _tags_from_filename(self) -> None:
         self._scan_for("filename")

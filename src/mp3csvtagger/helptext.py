@@ -361,6 +361,35 @@ fill-down are much faster there than in any tag editor — then feed it
 back as a Write layer. Match on FileName or FilePath (see
 "Pseudo-columns") so every row lands back on exactly its own file.
 
+BUILDING ONE CSV FOLDER BY FOLDER (append export)
+
+A library rarely lives in one folder. Instead of one CSV per folder,
+export the first folder as above, then APPEND the others into the
+same file:
+
+  Files tab -> "Export library to CSV..." -> "Append to an existing
+  CSV...", or
+  mp3csvtagger export --folder ~/Music/More --out library.csv --append
+
+Append MERGES the new scan into the existing CSV:
+
+  - Rows are matched by FilePath. A file that is already in the CSV
+    gets its row updated in place (same position, fresh values);
+    files that are new are added at the end.
+  - Rows for files that were NOT in this scan are kept exactly as
+    they are — appending never removes anything.
+  - Tag columns the new scan introduces are added at the end of the
+    header (blank for the rows that were already there). A column
+    the scan does not produce — including one you added by hand —
+    keeps its existing values even on rows that get updated.
+  - After an append, the program reports how many rows were added,
+    updated and kept, and which columns were added.
+
+One caution: appending needs the FilePath column to match rows
+reliably. If it was deleted from the CSV, append falls back to
+matching by FileName and warns you — file names alone are weaker,
+because two different files can share a name.
+
 (The Preview tab's separate "Export preview CSV..." is different: one
 row per pending CHANGE, for reviewing a run before you apply it.)""",
     ),

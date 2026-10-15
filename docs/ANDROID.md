@@ -35,8 +35,13 @@ runs, same change-log format.
   run itself changed a file's cover art). Undo restores those tags,
   removes headers the run created, and skips files whose size or
   modification time changed since the run, with an option to force.
-* **Export tags to CSV** — one row per MP3, one column per tag name:
-  a readable library record, and a round-trip editing format.
+* **Export tags to CSV** — one row per MP3 (File + FilePath columns,
+  then one column per tag name): a readable library record, and a
+  round-trip editing format. Exports can also **append**: merge a
+  scan into an existing library CSV — rows keyed by FilePath,
+  re-scanned files update their rows in place, new files and new tag
+  columns append at the end — so one library CSV can be built up
+  folder by folder, exactly like the desktop program.
 * **Help** — an extensive built-in Help screen; the same text is in
   [ANDROID_HELP.md](ANDROID_HELP.md).
 

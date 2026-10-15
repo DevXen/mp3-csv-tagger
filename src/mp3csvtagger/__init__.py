@@ -16,5 +16,5 @@ The package is split so the *engine* never depends on the GUI:
 * :mod:`mp3csvtagger.gui`       — Tkinter desktop app (standard library only)
 """
 
-__version__ = "1.2.0"
+__version__ = "1.3.0"
 __all__ = ["__version__"]

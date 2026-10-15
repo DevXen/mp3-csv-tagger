@@ -30,6 +30,7 @@ import com.devxen.mp3csvtagger.engine.Mp3Item
 import com.devxen.mp3csvtagger.engine.Preview
 import com.devxen.mp3csvtagger.engine.Role
 import com.devxen.mp3csvtagger.engine.buildPreview
+import com.devxen.mp3csvtagger.engine.appendTagsCsv
 import com.devxen.mp3csvtagger.engine.exportTagsCsv
 import com.devxen.mp3csvtagger.engine.ChangeLog
 import com.devxen.mp3csvtagger.tagio.Id3Reader
@@ -142,6 +143,16 @@ class MainActivity : ComponentActivity() {
             }
             setStatus("Tags exported to ${displayName(uri)}.")
         }
+    }
+
+    // Append export: the user picks the library CSV to merge into.
+    // The merge runs against the current scan and the merged text is
+    // written back over the same document, then a summary is shown.
+    private val openAppendTarget = registerForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri == null) return@registerForActivityResult
+        lifecycleScope.launch { appendExportTo(uri) }
     }
 
     private fun takeGrant(uri: Uri) {
@@ -971,15 +982,70 @@ class MainActivity : ComponentActivity() {
     // Export
     // ------------------------------------------------------------------
 
+    /** Item id -> path relative to the picked folder, for export's FilePath column. */
+    private fun scannedPaths(): Map<String, String> =
+        scanned.associate { it.item.id to it.relativePath }
+
     private fun exportTags() {
         if (treeUri == null) {
             showMessage("Export tags", "Pick your music folder first.")
             return
         }
-        lifecycleScope.launch {
-            if (scanned.isEmpty()) scanned = scanFolder()
-            pendingExportText = exportTagsCsv(scanned.map { it.item })
-            createExport.launch("mp3-tags.csv")
+        // Two ways out: a fresh CSV, or merging this scan into a
+        // library CSV that already exists (built up folder by folder).
+        AlertDialog.Builder(this)
+            .setTitle("Export tags to CSV")
+            .setItems(arrayOf("New CSV", "Append to existing CSV")) { _, which ->
+                when (which) {
+                    0 -> lifecycleScope.launch {
+                        if (scanned.isEmpty()) scanned = scanFolder()
+                        pendingExportText = exportTagsCsv(scanned.map { it.item }, scannedPaths())
+                        createExport.launch("mp3-tags.csv")
+                    }
+                    1 -> openAppendTarget.launch(
+                        arrayOf("text/csv", "text/comma-separated-values", "text/plain", "*/*")
+                    )
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    /**
+     * Merge the current folder's scan into the library CSV at [uri]
+     * and write the merged CSV back over it. Rows are keyed by the
+     * FilePath column; see the engine's appendTagsCsv for the rules.
+     */
+    private suspend fun appendExportTo(uri: Uri) {
+        if (scanned.isEmpty()) scanned = scanFolder()
+        try {
+            val result = runIo("Merging into ${displayName(uri)}…") {
+                val existingText = contentResolver.openInputStream(uri)?.use {
+                    it.readBytes().toString(Charsets.UTF_8)
+                } ?: throw IllegalStateException("Could not read that CSV.")
+                val merged = appendTagsCsv(existingText, scanned.map { it.item }, scannedPaths())
+                contentResolver.openOutputStream(uri, "wt")?.use { out ->
+                    out.write(merged.csvText.toByteArray(Charsets.UTF_8))
+                } ?: throw IllegalStateException("Could not write that CSV.")
+                merged.summary
+            }
+            val lines = mutableListOf(
+                "Scanned ${result.filesScanned} file(s) into ${displayName(uri)}:",
+                "Rows added: ${result.rowsAdded}",
+                "Rows updated: ${result.rowsUpdated}",
+                "Rows kept: ${result.rowsKept}",
+            )
+            if (result.columnsAdded.isNotEmpty()) {
+                lines += "Columns added: ${result.columnsAdded.joinToString(", ")}"
+            }
+            if (result.warning != null) lines += "Warning: ${result.warning}"
+            showMessage("Append to existing CSV", lines.joinToString("\n"))
+            setStatus(
+                "Append export: ${result.rowsAdded} added, " +
+                    "${result.rowsUpdated} updated, ${result.rowsKept} kept."
+            )
+        } catch (e: Exception) {
+            showMessage("Append to existing CSV", e.message ?: "The merge failed.")
         }
     }
 

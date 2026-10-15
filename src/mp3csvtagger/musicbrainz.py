@@ -26,7 +26,7 @@ from .tags import frame_for_tag_name
 
 #: User-Agent sent with every MusicBrainz request.  MusicBrainz asks
 #: applications to identify themselves (including a contact / project URL).
-USER_AGENT = "MP3CsvTagger/1.2.0 ( https://github.com/DevXen/mp3-csv-tagger )"
+USER_AGENT = "MP3CsvTagger/1.3.0 ( https://github.com/DevXen/mp3-csv-tagger )"
 
 #: Base URL of the MusicBrainz web service (version 2).
 BASE = "https://musicbrainz.org/ws/2"

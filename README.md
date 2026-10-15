@@ -43,7 +43,9 @@ in the Setup tab. Full detail: [docs/CSV_FORMAT.md](docs/CSV_FORMAT.md).
   from them with a pattern like `{Lead Performer} - {Title}`. File names
   are a *source* of tag values — the program never renames files.
 * **Export library → CSV** — dump every file's tags to a spreadsheet,
-  fix them there, feed the sheet back as a Write layer.
+  fix them there, feed the sheet back as a Write layer. Exports can
+  also **append**: build one library CSV up folder by folder, with
+  re-scanned files updating their rows in place.
 * **Library report** — find duplicate tracks and inconsistent spellings
   (`Beatles` vs `beatles` vs `BEATLES`) and unify them with an explicit pick.
 * **Role presets** — save a column-role setup once, reuse it on every

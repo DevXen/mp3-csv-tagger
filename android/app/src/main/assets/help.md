@@ -214,8 +214,9 @@ restoring from them is a deliberate manual step for now.
 ## Export tags to CSV
 
 "Export tags to CSV" writes a spreadsheet of your library as it is now:
-one row per MP3, a File column, then one column per tag name found
-anywhere in the folder. Two good uses:
+one row per MP3, a File column and a FilePath column (the file's path
+inside the picked folder), then one column per tag name found anywhere
+in the folder. Two good uses:
 
 - **A backup you can read** — a human-friendly record of your tags.
 - **An editing round-trip** — export, fix values in a spreadsheet,
@@ -225,6 +226,25 @@ anywhere in the folder. Two good uses:
 
 Export includes custom (TXXX) fields under their own names, so nothing
 you have tagged is lost in the round-trip.
+
+**Building one CSV folder by folder (append export).** A library
+rarely lives in one folder. Export the first folder as a new CSV,
+pick the next folder, then choose "Append to existing CSV" and pick
+that same CSV file: the new scan is merged into it.
+
+- Rows are matched by the FilePath column. A file already in the CSV
+  gets its row updated in place; new files are added at the end.
+- Rows for files that were not in this scan are kept exactly as they
+  are — appending never removes anything.
+- Tag columns the new scan introduces are added at the end of the
+  header. A column the scan does not produce — including one you
+  added by hand — keeps its existing values.
+- Afterwards the app reports how many rows were added, updated and
+  kept, and which columns were added.
+
+If the CSV has no FilePath column, rows are matched by file name
+instead and the app warns you — names are weaker, because two
+different files can share a name.
 
 ## The change log
 

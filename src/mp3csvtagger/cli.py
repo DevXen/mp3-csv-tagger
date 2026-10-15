@@ -34,7 +34,7 @@ import sys
 from . import __version__, musicbrainz, presets, undo
 from .apply import apply_preview, write_preview_csv
 from .filename_tags import capture_for_file
-from .library_export import write_library_csv
+from .library_export import append_library_csv, write_library_csv
 from .library_report import (
     duplicate_groups,
     render_csv_report,
@@ -152,12 +152,34 @@ def cmd_undo(args) -> int:
 
 
 def cmd_export(args) -> int:
-    """Export the scanned library's tags to a CSV file."""
+    """Export the scanned library's tags to a CSV file.
+
+    Without ``--append`` the target CSV is created (or overwritten).
+    With ``--append`` the scan is merged into the existing CSV at
+    ``--out``: see :func:`library_export.append_library_csv` for the
+    merge rules.
+    """
     if args.project:
         project = Project.load(args.project)
         files = scan(project.mp3_paths, progress=_progress_printer("scan"))
     else:
         files = _scan_args(args)
+    if getattr(args, "append", False):
+        if not os.path.exists(args.out):
+            raise SystemExit(
+                f"--append needs an existing CSV to merge into; "
+                f"{args.out} does not exist. Export without --append first."
+            )
+        summary = append_library_csv(files, args.out)
+        print(f"Appended a scan of {summary.files_scanned} file(s) to {args.out}")
+        print(f"Rows added: {summary.rows_added}  "
+              f"Rows updated: {summary.rows_updated}  "
+              f"Rows kept: {summary.rows_kept}")
+        if summary.columns_added:
+            print(f"Columns added: {', '.join(summary.columns_added)}")
+        if summary.warning:
+            print(f"Warning: {summary.warning}")
+        return 0
     columns = write_library_csv(files, args.out)
     print(f"Exported {len(files)} file(s), {len(columns)} column(s) to {args.out}")
     print(f"Columns: {', '.join(columns)}")
@@ -392,6 +414,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--folder", action="append", help="folder to scan recursively")
     p.add_argument("--file", action="append", help="a single MP3 file")
     p.add_argument("--out", required=True, help="CSV file to write")
+    p.add_argument("--append", action="store_true",
+                   help="merge into the existing --out CSV instead of "
+                        "overwriting it (rows keyed by FilePath; see the "
+                        "Help topic 'Exporting your library to CSV')")
     p.set_defaults(func=cmd_export)
 
     p = sub.add_parser("from-filename", help="capture tag values from file names/paths")

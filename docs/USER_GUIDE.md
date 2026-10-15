@@ -90,7 +90,12 @@ log folder. They are plain JSON — you can read and even edit them.
   plus `FileName`/`FilePath`/`Folder`. Edit it in a spreadsheet and
   feed it back with `FileName` as the Match column (those
   pseudo-columns match locations and can never be written — the
-  program never renames files).
+  program never renames files). The dialog also offers **Append to an
+  existing CSV…**: merge another folder's scan into a library CSV you
+  already have — rows are keyed by `FilePath`, re-scanned files
+  update their row in place, new files append at the end, new tag
+  columns are added at the end of the header, and rows outside the
+  scan are kept untouched (CLI: `export --append`).
 * **Tags from filename/path…** — capture values from names like
   `Artist - Title.mp3` or paths like `Artist/Album/01 - Title.mp3`
   with a `{Tag}` pattern; captures become a normal preview.
