@@ -1,0 +1,160 @@
+
+class PreviewManager {
+
+    function this() {
+        this.controller = view.controllers().preview;
+        this.view = view.views().preview;
+        this.backgrounds = {};
+
+    }
+
+    function initialize_event_handling () {
+
+          var myself = this;
+
+          /**
+           * Preview layer
+           */
+          var previewlayer = $(#preview-layer);
+
+          previewlayer.on("change", function (e) {
+               myself.controller.set_current_layer(previewlayer.value);
+          });
+
+          /**
+           * Cell/Row hightlighting
+           */
+          var preview_table = $(#preview-table);
+
+          preview_table.on("scroll-cell", function (e) {
+
+               var cell = e.data.cell;
+               var cell_index = e.data.cell_index;
+               var row  = e.data.row;
+               var cell_data = row[cell_index]
+               var heading = e.data.heading;
+
+               // By default the grid will set the cell content to the cell index in the row array.
+               // It could be, as is the case, an object of different vales (cell value, role, change count etc.)
+
+               // Set the cell to what it should be if cell and cell_data exist.
+               if (cell !== undefined && cell !== null && cell_data !== undefined && cell_data !== null) {
+
+                   cell.value(cell_data.value);
+
+                   switch(cell_data.role) {
+
+                        // Match role
+                        case 1:
+                            cell.style("background", this.backgrounds.match);
+                            break;
+                        // Write role
+                        case 2:
+
+                            if (cell_data.count == 0) {
+                                cell.style("background", this.backgrounds.nochange);
+                            }
+                            else
+                            if (cell_data.count == 1) {
+                                cell.style("background", this.backgrounds.write);
+                                cell.style("cursor","pointer");
+                                cell.attribute("single", "true");
+                                cell.attribute("preview-id", cell_data.id)
+                            }
+                            else {
+                                cell.style("background", this.backgrounds.multiple);
+                                cell.style("cursor","pointer");
+                                cell.attribute("multiple", "true");
+                                cell.attribute("preview-id", cell_data.id)
+                            }
+
+                            break;
+                        // Skip role
+                        case 3:
+                            cell.style("background", this.backgrounds.skip);
+
+                   }
+              }
+
+          });
+
+
+         // Listen for clicks on preview table.
+         preview_table.on("click", function (e) {
+            var target = e.target;
+            var preview_id = target.attributes["preview-id"];
+
+            var multiple = target.attributes["multiple"];
+            if (multiple === "true") {
+                myself.select_multiple_value (preview_id);
+                return;
+            }
+
+            var single = target.attributes["single"];
+            if (single == "true") {
+                myself.controller.show_single_old_value(preview_id)
+                return;
+            }
+         });
+
+          // Paging
+         preview_table.on("mousewheel", function (e) {
+            if (e.ctrlKey) {
+                if (e.wheelDelta > 0) {
+                    myself.controller.page_up();
+                }
+                else
+                if (e.wheelDelta < 0) {
+                    myself.controller.page_down();
+                }
+            }
+         });
+    }
+
+    function refresh_table_stats() {
+
+        var stats = this.controller.get_preview_rows_stats();
+        var from = stats.offset+1;
+        var to = stats.offset + stats.limit;
+        if (to > stats.total) {
+            to = stats.total;
+        }
+        var stats_element = $(.preview-table-stats);
+        stats_element.text = "Records "+from.toString()+" - "+to.toString()+" of "+stats.total.toString();
+    }
+
+    function refresh_table(headings, data, backgrounds) {
+
+        this.backgrounds = backgrounds;
+
+        var preview_table = $(#preview-table);
+        preview_table.data = data;
+
+        preview_table.headings = headings;
+        preview_table.backgrounds = backgrounds;
+        preview_table.refreshTable();
+
+        this.refresh_table_stats();
+    }
+
+    function select_multiple_value (preview_id) {
+     var v = view.dialog {
+         url: self.url(this.view.get_relative_resource_path("select_multiple_value.html")),
+         x:300,
+         y:300,
+         width: 650,
+         height: 350,
+         alignment:5,
+         parameters: {
+            "controller": this.controller,
+            "preview_id": preview_id
+         }
+      };
+    }
+}
+
+var previewManager = new PreviewManager()
+
+function refresh_preview_table(headings, data, backgrounds) {
+    previewManager.refresh_table (headings, data, backgrounds);
+}

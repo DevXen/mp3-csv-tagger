@@ -1,0 +1,56 @@
+include "events.tis"
+
+class BaseWidget : Element {
+
+	this var _name = "noname";
+
+	function attached() {
+
+	    //For normal, static, hints, use the "title" attribute on the element!
+	    //Get value of hint attribute.
+
+		var hint = this.@#hint;
+
+		if (hint !== undefined) {
+
+			//Need this in <head> section of html: <popup role="tooltip" id="tooltip"></popup>
+			var tooltip = $(popup#tooltip);
+
+			var provideTip = function (evt) {
+
+			    //Extending classes should implement function onHint (hint) {return ...}
+				if (this.onHint !== undefined) {
+				   tooltip.text = this.onHint (hint);
+				}
+				else {
+				   tooltip.text = hint;
+				}
+
+				evt.source = tooltip;
+				return true;
+			}
+			this.subscribe (provideTip, Event.BEHAVIOR_EVENT, Event.REQUEST_TOOLTIP);
+		}
+
+		//Extending classes should create _attached() instead of attached();
+        if (this._attached !== undefined) {
+            this._attached();
+        }
+
+    	//Note on | eventParam {...} format: https://sciter.com/2018/02/
+    	this.on ("click", function (e) {
+    	    if (this.notify_onClick !== undefined) {
+    	        this.notify_onClick ();
+    	    }
+    	});
+
+	}
+
+    property name (val) {
+       get return this._name;
+	   set this._name = val;
+    }
+
+	@DECLARE_EVENT #onClick;
+
+}

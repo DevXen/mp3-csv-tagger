@@ -1,0 +1,143 @@
+.csv {
+    size: *;
+    font-family: "Times New Roman", Times, serif;
+    font-size: 16px;
+}
+
+.csv-entries-header {
+    width: 100%%;
+    border-style:solid;
+    border-width:1px;
+    border-color:#bfd7fc;
+    border-radius:2px;
+    box-shadow: 5px 5px 5px #ddd;
+}
+
+.csv-entries-top-toolbar {
+    width: 100%%;
+    height: 50dip;
+}
+
+.csv-entries-top-toolbar button {
+    margin:5dip;
+    height:35dip;
+
+    border-style:solid;
+    border-width:1px;
+    border-color:#bfd7fc;
+    border-radius:2px;
+    box-shadow: 5px 5px 5px #ddd;
+}
+
+.csv-entries {
+    size: *;
+    padding-top:2px;
+    overflow:auto;
+}
+
+.csv-entry {
+    border-style:solid;
+    border-width:1px;
+    border-color:#bfd7fc;
+    border-radius:2px;
+    margin-top:5px;
+    box-shadow: 5px 5px 5px #ddd;
+    margin-bottom:15px;
+}
+
+.csv-entry-excluded {
+    background-color: #ccc;
+    filter: grayscale(100%);
+}
+
+.csv-entry-excluded img {
+    filter: grayscale(100%);
+}
+
+.csv-entry-header {
+    width:100%;
+}
+
+.csv-entry-header table {
+    width: 100%;
+}
+
+.csv-entry-header tr {
+    width: 100%;
+}
+
+.csv-entry-header-icon {
+    width:40px;
+}
+
+.csv-entry-header-titles {
+    width:100%;
+}
+
+.csv-entry-header-title {
+    text-align:center;
+    font-weight:bold;
+}
+
+.csv-entry-header-sub-title {
+    text-align:center;
+    font-weight:normal;
+    font-size:8pt;
+    width:100%;
+}
+
+.csv-entry th {
+
+    font-weight: normal;
+    width:150px;
+    height:20px;
+}
+
+.csv-entry select {
+    width:150px;
+}
+
+.csv-entry-toolbar {
+    height: 32px;
+}
+
+.csv-entry-toolbar-button {
+    background-color:none;
+    border-style:none;
+    height: 26px;
+    width: 26px;
+    padding:0px;
+    margin:2px 2px 2px 2px;
+}
+
+.csv-entry-toolbar-button:hover {
+    background-color:#dee8f9;
+}
+
+.csv-entry-toolbar-button img {
+    width:24px;
+    height:24px;
+    position:relative;
+    top:-48%;
+    left:-50%;
+    bottom:0;
+    right:0;
+}
+
+
+.csv-entry-toolbar-checkbox {
+    width: 26px;
+    height: 26px;
+    style-set: std-checkbox-base;
+    background-image: url(/icons/40/icons8-unchecked-checkbox-40.png);
+    background-size:26px 26px;
+    background-repeat:no-repeat;
+    foreground:none;
+
+}
+.csv-entry-toolbar-checkbox:checked {
+    background-image: url(/icons/40/icons8-checked-checkbox-40.png);
+    foreground-size:26px 26px;
+    foreground-position: 4dip 50%;
+    foreground-repeat: no-repeat;
+}

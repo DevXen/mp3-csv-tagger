@@ -1,0 +1,27 @@
+include "../basewidget.tis"
+
+class NavigationBarButton: BaseWidget {
+
+  function _attached() {
+
+    //this.@["style"] = "position: absolute; bottom:0px;";
+
+    var rootElement = new Element ("div");
+    rootElement.@["class"] = "navigation-bar-button";
+    this.insert (rootElement);
+
+    //Image
+    var imagePath = this.@["image"];
+    var image = new Element ("img");
+	image.@["src"] = imagePath;
+	rootElement.insert (image);
+
+    //Caption
+    var caption = this.@["caption"];
+    var captionElement = new Element ("caption");
+    captionElement.text = caption;
+    rootElement.insert (captionElement);
+
+  }
+
+}

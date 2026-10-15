@@ -1,0 +1,155 @@
+var tag_names_list = $(#tag-names-list);
+
+class TagNamesDataSource {
+
+    function this() {
+        this.tag_names = view.controllers().configuration.get_tag_names()
+    }
+
+    function size() {
+       return this.tag_names.length;
+    }
+
+    function get(index) {
+        if (index === undefined || index < 0) {
+            return null;
+        }
+        var tag_name = this.tag_names[index]
+        return {index: index, tag_name: tag_name.name, alt_tag_name: tag_name.alternative_name}
+    }
+
+    function refresh () {
+         this.tag_names = view.controllers().configuration.get_tag_names()
+    }
+}
+
+tag_names_list.records = new TagNamesDataSource();
+
+function refresh_tag_names () {
+    /*
+     NOTE: The vlist component appears to not like having its data source messed with once its been set, it
+     can be set but there appears to be a bug/feature stopping it working correctly.
+     So have to resort creating a new vlist component.
+     */
+    var tags_container = $(#tag-names-list-container)
+    tags_container.html = "<vlist class=\"tag-names-list\" #tag-names-list><li><div class=\"tag-name\" name=\"tag_name\"></div><div class=\"alt-tag-name\" name=\"alt_tag_name\"></di></li></vlist>"
+    tag_names_list = $(#tag-names-list);
+    tag_names_list.records = new TagNamesDataSource();
+}
+
+class ConfigurationHandler {
+
+    function this() {
+    }
+
+    function initialize () {
+
+        var myself = this;
+
+        self.on("click",".color-key", function () {
+            var color = this.attributes["color"];
+            var name = this.attributes["name"];
+            var chooser = $(#color-chooser);
+            chooser.name = name;
+            chooser.value = color;
+            this.popup( $(#color-chooser-popup));
+        });
+
+        // Listen for changes to color key input fields
+        self.on("change",".color-key-input", function () {
+            var value = this.value
+            var name = this.attributes["name"]
+
+            // This is a regular expression for testing the value is a valud RGB #<rr><gg><bb> value.
+            var hre = /^#(([0-9a-fA-F]{2}){3}|([0-9a-fA-F]){3})$/
+            if (hre.test(value)) {
+                //Passing false as the 3rd parameter will tell the view on refresh of color keys not to
+                //update the inputs, otherwise this wll trigger this change event.
+                view.controllers().configuration.set_color_key(name, value, False)
+            }
+        });
+
+        for (var e in $$(.reset-tag-names)) {
+            e.on("click", function () {
+                view.controllers().configuration.reset_tag_names()
+            });
+        }
+
+        for (var e in $$(.add-tag-name)) {
+           e.on("click", function () {
+              myself.addTagName();
+           });
+        }
+
+        for (var e in $$(.edit-tag-name)) {
+           e.on("click", function () {
+              myself.editTagName();
+           });
+        }
+
+        for (var e in $$(.remove-tag-name)) {
+           e.on("click", function () {
+              myself.removeTagName();
+           });
+        }
+
+
+
+    }
+
+    function getSelectedRecord () {
+       // Get a fresh copy of the tag names list as, if the list is refreshed
+       // above, this function gets to keep the old copy which creates
+       // a rift in the space-time continuum.
+       tag_names_list = $(#tag-names-list);
+       var index = tag_names_list.currentIndex;
+       var record = null;
+       if (index >= 0) {
+          record = tag_names_list.records.get(index);
+       }
+       return {"index": index, "record": record};
+
+    }
+
+    function addTagName() {
+        this.addEditTagName(function (tagName, alternativeTagName) {
+             view.controllers().configuration.add_tag_name (tagName, alternativeTagName);
+        }, null, null);
+    }
+
+    function editTagName() {
+        var selected = this.getSelectedRecord();
+        if (selected.index !== undefined && selected.index > -1) {
+            this.addEditTagName(function (tagName, alternativeTagName) {
+                 view.controllers().configuration.update_tag_name (selected.record.tag_name, tagName, selected.record.alt_tag_name, alternativeTagName);
+            }, selected.record.tag_name, selected.record.alt_tag_name);
+        }
+    }
+
+    function removeTagName() {
+        var selected = this.getSelectedRecord();
+        if (selected.index !== undefined && selected.index > -1) {
+            view.controllers().configuration.remove_tag_name (selected.record.tag_name, selected.record.alt_tag_name);
+        }
+    }
+
+    function addEditTagName(ok_callback, tag_name, alt_tag_name) {
+         var myself = this;
+         var v = view.dialog {
+             url: self.url(view.views().configuration.get_relative_resource_path("tagdialog.html")),
+             x:300,
+             y:300,
+             width: 400,
+             height: 300,
+             alignment:5,
+             parameters: {
+                "tag_name": tag_name,
+                "alt_tag_name": alt_tag_name,
+                "ok_callback": ok_callback,
+                "parent_view": view
+             }
+          };
+    }
+}
+
+var configurationHandler = new ConfigurationHandler()

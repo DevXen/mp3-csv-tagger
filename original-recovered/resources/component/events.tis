@@ -1,0 +1,48 @@
+/*
+ Taken from: https://sciter.com/tiscript-classes-decorators-and-events/
+
+ Example usage inside class definition:
+
+ class X: Y
+ {
+   @DECLARE_EVENT #onCurrentRowChanged;
+ }
+
+ To listen to this event use:
+
+ <self>#<id>.onCurrentRowChanged.push(onCurrentChange1)
+
+ <self> being e.g. the main script in the html
+ <id> the id of the element instance of the class
+
+ e.g.
+ <widget.large-button image="images/door_open.png" id="exit_app_button"></widget>
+
+ self#exit_app_button.onClick.push(function (button[,...]) { });
+
+*/
+function @DECLARE_EVENT(dummy, eventName)
+{
+  var notify_sym = symbol( "notify_" + eventName.toString());
+  var list_sym = symbol( "_" + eventName.toString());
+  var prop_sym = eventName;
+
+  this[ notify_sym ] = // 'this' here is a class being decorated
+    function(params..)
+    {
+      // 'this' here is an instance of the class
+      var list = this[list_sym];
+      if(typeof list == #array)
+      {
+        for( var f in list )
+          f.apply(this, this, params); // always pass 'this' in the first param - source element
+      }
+    }
+
+  this[ prop_sym] = // 'this' here is a class being decorated, generating computable property for it.
+    property(v)
+  {
+    get { return this[list_sym] || (this[list_sym] = []); }
+    set { throw String.printf("Use element.%s.push(func) to subscribe on this event", list_sym); }
+  }
+}

@@ -1,0 +1,25 @@
+include "../basewidget.tis"
+
+class NormalButton: BaseWidget {
+
+  function _attached() {
+
+	var imagePath = this.@["image"];
+    if (imagePath !== undefined && imagePath !== null) {
+        var image = new Element("img");
+        image.@["src"] = imagePath;
+        this.insert(image);
+    }
+
+    var captionText = this.@["caption"]
+    if (captionText !== undefined && captionText !== null) {
+        var caption = new Element("caption");
+        caption.html = captionText;
+        this.insert(caption);
+    }
+
+
+  }
+
+
+}

@@ -1,0 +1,9 @@
+function initialize_about() {
+    var view_element = $(#{{view_id}});
+
+    view_element.on("click", "a[href^=http]", function(evt) {
+      var href = this.attributes["href"];
+      Sciter.launch(href); // will open the url in default browser
+      return true; // consume the event
+    });
+}

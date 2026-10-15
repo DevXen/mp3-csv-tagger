@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Select a value</title>
+
+    <style>
+        body {
+            padding: 20px;
+            margin: 0px;
+        }
+
+        .header {
+            height:30dip;
+        }
+
+        .content {
+            border-style:solid;
+            border-width:1px;
+            border-color:#bfd7fc;
+            height:*;
+
+            overflow:scroll;
+        }
+
+        .selection-table {
+            padding:0px;
+            margin:0px;
+            size:*;
+        }
+
+        .selection-table thead {
+            height:30dip;
+            padding:0px;
+            margin:0px;
+        }
+
+        .selection-table thead tr {
+            background-color:#c2d3ef;
+            height:30dip;
+            padding:0px;
+            margin:0px;
+        }
+
+        .selection-table thead tr th {
+            background-color:#c2d3ef;
+            height:30dip;
+        }
+
+        .selection-table .th-checkbox {
+            width:25dip;
+            padding:2px;
+        }
+
+        .selection-table .th-csv-name {
+            width: 150dip;
+            padding:2px;
+            text-align:left;
+        }
+
+        .selection-table .th-csv-row {
+            width: 100dip;
+            padding:2px 20px 2px 2px;
+            text-align:right;
+        }
+
+        .selection-table .th-value {
+            min-width: 100%%;
+            padding:2px;
+            text-align:left;
+        }
+
+        .selection-table tbody {
+            padding:0px;
+            margin:0px;
+            size:*;
+
+            border-style:solid;
+            border-width:0px 0px 1px 0px;
+            border-color:#afcef7;
+        }
+
+        .selection-table tbody tr {
+            padding:0px;
+            margin:0px;
+        }
+
+        .selection-table tbody .alt-row {
+            background-color: #afcef7;
+        }
+
+        .selection-table .td-checkbox {
+            width:25dip;
+            padding:2px;
+
+        }
+
+        .selection-table .td-csv-name {
+            width: 150dip;
+            padding:2px;
+            text-align:left;
+            overflow: hidden;
+            white-space: nowrap;
+        }
+
+        .selection-table .td-csv-row {
+            width: 100dip;
+            padding:2px 20px 2px 2px;
+            text-align:right;
+            overflow: hidden;
+            white-space: nowrap;
+        }
+
+        .selection-table .td-value {
+            width: *;
+            padding:2px;
+            text-align:left;
+        }
+
+
+        .footer {
+           height: 30dip;
+           flow:horizontal;
+           padding-left:30%;
+        }
+
+        button {
+            margin:5dip;
+            height:35dip;
+            width:80dip;
+            border-style:solid;
+            border-width:1px;
+            border-color:#bfd7fc;
+            border-radius:2px;
+            box-shadow: 5px 5px 5px #ddd;
+        }
+
+        .selection-checkbox {
+            width: 26px;
+            height: 26px;
+            style-set: std-checkbox-base;
+            background-image: url(/icons/40/icons8-unchecked-checkbox-40.png);
+            background-size:26px 26px;
+            background-repeat:no-repeat;
+            foreground:none;
+
+        }
+        .selection-checkbox:checked {
+            background-image: url(/icons/40/icons8-checked-checkbox-40.png);
+            foreground-size:26px 26px;
+            foreground-position: 4dip 50%;
+            foreground-repeat: no-repeat;
+        }
+
+    </style>
+</head>
+<body>
+
+
+    <div class="header">
+    </div>
+    <div class="content">
+        <form>
+        <table id="selection-table" class="selection-table">
+            <thead>
+                <tr>
+                    <th class="th-checkbox"></th>
+                    <th class="th-csv-name">CSV</th>
+                    <th class="th-csv-row">Row</th>
+                    <th class="th-value">Value</th>
+                <tr/>
+            </thead>
+            <tbody>
+            </tbody>
+
+        </table>
+         </form>
+    </div>
+    <div class="footer">
+        <button id="ok">Ok</button>
+        <button id="cancel">Cancel</button>
+    </div>
+
+
+    <script type="text/tiscript">
+
+        var selected_id = -1;
+        var original_selected_id = -1;
+        var selected_checkbox = null;
+
+        self.ready = function () {
+
+            var preview_id = view.parameters.preview_id
+            var tag_values = view.parameters.controller.get_multiple_tag_values(preview_id);
+
+            var selection_table = $(#selection-table > tbody);
+
+            var html = "";
+            var rowidx = 0;
+            for (var value in tag_values) {
+                var checked="";
+                if (value.selected_value == 1) {
+                    checked="checked";
+                    selected_id=value.id.toInteger();
+                    original_selected_id=selected_id;
+                }
+                rowidx++;
+                html += "<tr";
+                if (rowidx % 2 == 0) {
+                    html +=" class=\"alt-row\"";
+                }
+                html += ">";
+
+                html += "<td class=\"td-checkbox\"><input id=\"select_"+value.id+"\" class=\"selection-checkbox\" value=\""+value.id+"\" type=\"checkbox\" name=\"selected\" "+checked+"></input></td>";
+                html += "<td class=\"td-csv-name\">" + value.csv_name +"</td>";
+                html += "<td class=\"td-csv-row\">" + value.csv_row_index +"</td>";
+                html += "<td class=\"td-value\">" + value.tag_value+"</td>";
+                html += "</tr>";
+
+            }
+
+            selection_table.html = html;
+
+            // Find selected checkbox
+            if (selected_id > -1) {
+                var id = "select_"+selected_id;
+                selected_checkbox = selection_table.select("#"+id);
+            }
+
+            $(#ok).on("click", function () {
+                view.close();
+                if (selected_id > 0) {
+                    view.parameters.controller.set_selected_preview_id (original_selected_id, selected_id);
+                    // Refresh preview
+                    view.parameters.controller.refresh(false)
+                }
+            });
+
+            $(#cancel).on("click", function () {
+                view.close();
+            });
+
+            var checkboxes = $$(.selection-checkbox);
+            for (var checkbox in checkboxes) {
+                checkbox.on("change", function (e) {
+                    var checkbox = e.target;
+                    var value = checkbox.attributes["value"];
+
+                    if (selected_checkbox != null ){
+                        selected_checkbox.state.checked = false;
+                        selected_checkbox = null;
+                        selected_id = -1;
+                    }
+
+                    if (checkbox.state.checked == true) {
+                        selected_id = value.toInteger();
+                        selected_checkbox = checkbox;
+                        selected_checkbox.state.checked = true;
+                    }
+
+                });
+            }
+        }
+
+        function close_dialog() {
+            view.close();
+        }
+
+        function update_status(content) {
+            $(#status-column).html = content;
+        }
+
+        function update_status_error(msg, error) {
+            $(#status-column).html = msg+". "+error;
+        }
+
+    </script>
+</body>
+</html>

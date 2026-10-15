@@ -1,0 +1,67 @@
+class ProgressDialogEvents : Observable {
+
+    function this() {
+        super();
+    }
+
+    function listenForStatusUpdates(listener) {
+        this.listen (1, listener);
+    }
+
+    function notifyStatusUpdate(status) {
+        this.notify (1, status);
+    }
+
+    function listenForCloseDialog(listener) {
+        this.listen (2, listener);
+    }
+
+    function notifyCloseDialog() {
+        this.notify (2, null);
+    }
+
+    function listenForErrorUpdates(listener) {
+        this.listen (3, listener);
+    }
+
+    function notifyErrorUpdate(error) {
+        this.notify (3, error);
+    }
+
+}
+
+var progressDialogEvents = new ProgressDialogEvents ();
+
+function update_progress_status (status) {
+    progressDialogEvents.notifyStatusUpdate(status);
+}
+
+function update_progress_error (error) {
+    progressDialogEvents.notifyErrorUpdate(error);
+}
+
+
+function close_progress_dialog() {
+    progressDialogEvents.notifyCloseDialog();
+}
+
+function show_progress_dialog(dialog_ready_callback,dialog_message_callback) {
+
+     progressDialogEvents.clear();
+
+     var v = view.window {
+         type: View.TOOL_WINDOW,
+         url: self.url(view.views().progress.get_relative_resource_path("dialog.html")),
+         x:300,
+         y:300,
+         width: 400,
+         height: 250,
+         alignment:5,
+         parameters: {
+            "dialog_events": progressDialogEvents,
+            "dialog_ready_callback": dialog_ready_callback,
+            "dialog_message_callback": dialog_message_callback,
+            "parent_view": view
+         }
+      };
+}

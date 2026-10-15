@@ -1,0 +1,80 @@
+<div class="configuration" id="{{view_id}}">
+
+    <div class="configuration-tabs-container">
+
+       <tabs class="configuration-tabs" #config-tabs>
+          <strip> <!-- our tab strip, can be placed on any side of tab container. -->
+             <label for=first>Tag Colors</label>
+             <label for=second>Tag Names</label>
+          </strip>
+          <panels>
+            <section(first)>
+                <div id="color-key-configuration" class="color-key-configuration">
+
+                    <div class="color-key-configuration-header">
+                        Color Key
+                    </div>
+
+                    <table>
+                        <tr>
+                            <td class="color-key" id="color-match" name="match" color="{{project.get_tag_color('match').background}}" style="background-color:{{project.get_tag_color('match').background}}">Match Tag</td>
+                            <td class="color-key" id="color-write" name="write" color="{{project.get_tag_color('write').background}}" style="background-color:{{project.get_tag_color('write').background}}">Write Tag</td>
+                            <td class="color-key" id="color-current" name="current" color="{{project.get_tag_color('current').background}}" style="background-color:{{project.get_tag_color('current').background}}">Current Tag</td>
+                            <td class="color-key" id="color-replacing" name="replacing" color="{{project.get_tag_color('replacing').background}}" style="background-color:{{project.get_tag_color('replacing').background}}">Replacing Tag</td>
+                        </tr>
+                        <tr>
+                            <td><input maxlength="7" class="color-key-input" id="color-match-input" name="match" value="{{project.get_tag_color('match').background}}"></input></td>
+                            <td><input maxlength="7" class="color-key-input" id="color-write-input" name="write" value="{{project.get_tag_color('write').background}}"></input></td>
+                            <td><input maxlength="7" class="color-key-input" id="color-current-input" name="current" value="{{project.get_tag_color('current').background}}"></input></td>
+                            <td><input maxlength="7" class="color-key-input" id="color-replacing-input" name="replacing" value="{{project.get_tag_color('replacing').background}}"></input></td>
+                        </tr>
+                        <tr></tr>
+                        <tr>
+                            <td class="color-key" id="color-multiple" name="multiple" color="{{project.get_tag_color('multiple').background}}" style="background-color:{{project.get_tag_color('multiple').background}}">Multiple Values</td>
+                            <td class="color-key" id="color-skip" name="skip" color="{{project.get_tag_color('skip').background}}" style="background-color:{{project.get_tag_color('skip').background}}">Skip Tag</td>
+                            <td class="color-key" id="color-nochange" name="nochange" color="{{project.get_tag_color('nochange').background}}" style="background-color:{{project.get_tag_color('nochange').background}}">No Change</td>
+                        </tr>
+                        <tr>
+                            <td><input maxlength="7" class="color-key-input" id="color-multiple-input" name="multiple" value="{{project.get_tag_color('multiple').background}}"></input></td>
+                            <td><input maxlength="7" class="color-key-input" id="color-skip-input" name="skip" value="{{project.get_tag_color('skip').background}}"></input></td>
+                            <td><input maxlength="7" class="color-key-input" id="color-nochange-input" name="nochange" value="{{project.get_tag_color('nochange').background}}"></input></td>
+                        </tr>
+                    </table>
+
+                </div>
+            </section>
+
+            <section(second)>
+                <div class="tag-name-toolbar">
+                        <button class="add-tag-name">Add Tag Name</button>
+                        <button class="edit-tag-name">Edit Tag Name</button>
+                        <button class="remove-tag-name">Remove Tag Name</button>
+                        <button class="reset-tag-names">Reset</button>
+                </div>
+                <div class="tag-name-headings">
+                    <div class="tag-name-heading">Tag Name</div>
+                    <div class="alt-tag-name-heading">Alternative Tag Name</div>
+                </div>
+                <div #tag-names-list-container class="tag-names-list-container">
+                    <vlist class="tag-names-list" #tag-names-list>
+                      <li><div class="tag-name" name="tag_name"></div><div class="alt-tag-name" name="alt_tag_name"></di></li>
+                    </vlist>
+                </div>
+            </section>
+
+          </panels>
+       </tabs>
+
+    </div>
+
+</div>
+
+  <popup>
+    <menu.context id="tag-names-context-menu">
+      <li class="add-tag-name">Add Tag Name</li>
+      <li class="edit-tag-name">Edit Tag Name</li>
+      <li class="remove-tag-name">Remove Tag Name</li>
+    </menu>
+  </popup>
+
+{{view_script}}

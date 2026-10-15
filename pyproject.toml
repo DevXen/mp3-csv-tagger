@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mp3csvtagger"
+version = "1.0.0"
+description = "Bulk-edit MP3 ID3 tags from CSV files — Match rows to files, Write new tag values, preview everything first."
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.10"
+authors = [{ name = "DevXen" }]
+keywords = ["mp3", "id3", "tags", "metadata", "csv", "mutagen"]
+dependencies = ["mutagen>=1.47"]
+
+[project.scripts]
+mp3csvtagger = "mp3csvtagger.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/DevXen/mp3-csv-tagger"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

@@ -1,0 +1,49 @@
+.preview {
+    size: *;
+}
+
+.preview-layer {
+    width: 150dip;
+    background-color: #ffffff;
+}
+
+.preview-header {
+    height:70dip;
+    border-style:solid;
+    border-width:1px;
+    border-color:#bfd7fc;
+    box-shadow: 5px 5px 5px #ddd;
+    flow:horizontal;
+    padding:5px;
+}
+
+.preview-header-heading {
+    padding-left:5px;
+    height:20dip;
+}
+
+.preview-layer-container {
+    width: 200dip;
+}
+
+.preview-table-stats {
+    flow:horizontal;
+    padding:2px;
+}
+
+.preview-table-container {
+    size: *;
+    border-style:solid;
+    border-width:1px;
+    border-color:#bfd7fc;
+    box-shadow: 5px 5px 5px #ddd;
+    margin-top:5px;
+}
+
+.fixed-column-table .fixed-column-table-scrollable {
+    top:88dip;
+}
+
+.preview-table-container .multiple-values {
+   cursor: pointer;
+}

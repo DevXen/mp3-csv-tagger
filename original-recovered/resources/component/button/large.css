@@ -1,0 +1,37 @@
+@set large-button
+{
+  :root
+  {
+    prototype: LargeButton url(large.tis);
+    width: 80px;
+    height: 70px;
+    margin: 5px 0px 5px 5px;
+    float:left;
+    overflow: hidden;
+    background: linear-gradient(top, #3498db, #2980b9);
+    border-radius: 4dip;
+  }
+
+  :root:active {
+      box-shadow: inset 5dip 5dip 5dip #666;
+  }
+
+  :root:hover
+  {
+	background: linear-gradient(top, #2498db, 3498db, #1980b9);
+	cursor: pointer;
+  }
+
+  :root > img
+  {
+	  width: 48px;
+	  height: 48px;
+	  margin: 10px 10px 10px 15px;
+  }
+
+}
+
+widget.large-button
+{
+   style-set: "large-button";
+}

@@ -1,0 +1,78 @@
+navigation-bar
+{
+    prototype: NavigationBar url(navigationbar.tis);
+    //width:100px;
+    //height:100%;
+    //position: absolute;
+    //padding:0px;
+    //margin:0px;
+    //left:0px;
+    //top:0px;
+    background-color: #1e2633;
+    z-index:1;
+
+    height:*;
+    position:relative;
+    display: block;
+}
+
+.navigation-bar-item-selected {
+    background-color: #ffffff;
+    border-style:solid;
+    border-width: 1px 0px 1px 1px;
+    border-color: #ddd;
+}
+
+.navigation-bar-item-selected caption {
+    color: #14356b;
+}
+
+navigation-bar-button
+{
+        prototype: NavigationBarButton url(navigationbarbutton.tis);
+        width:90px;
+        height:100%;
+        padding:0px;
+        margin:0px;
+        border-style:none;
+        border-radius:0;
+        background-color: #1e2633;
+        z-index:2;
+        cursor:pointer;
+        position: relative;
+        display: block;
+}
+
+navigation-bar-button div {
+        padding: 0px;
+        margin:0px;
+        position: relative;
+}
+
+navigation-bar-button:hover div {
+        background-color: #ccc;
+}
+
+navigation-bar-button img {
+        width:40px;
+        height:40px;
+        position: relative;
+        margin: 2 auto;
+        //filter: invert() grayscale(100%);
+}
+
+navigation-bar-button caption {
+        position: relative;
+        padding-bottom:5px;
+        margin: auto;
+        color: #97a9c6;
+        text-align:center;
+}
+
+navigation-bar-button:hover img {
+        //filter: invert() grayscale(100%) brightness(40%);
+}
+
+navigation-bar-button:hover caption {
+        color: #14356b;
+}

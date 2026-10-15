@@ -1,0 +1,36 @@
+include "../basewidget.tis"
+
+class NavigationBar: BaseWidget {
+
+  function _attached() {
+
+  }
+
+  function bottom (elementId) {
+        var b = self.select("#"+elementId);
+        b.attributes["style"] = "position: absolute; bottom: 0px;";
+  }
+
+  function select (item) {
+
+
+        if (this.selectedItem !== undefined && this.selectedItem !== null) {
+            var cls = this.selectedItem.@["class"];
+            if (cls === undefined || cls === null) cls = "";
+            cls = cls.replace (" navigation-bar-item-selected","");
+            this.selectedItem.@["class"] = cls;
+        }
+
+        this.selectedItem = item;
+        var cls = this.selectedItem.@["class"];
+        if (cls === undefined || cls === null) cls = "";
+        if (cls.indexOf("navigation-bar-item-selected") === -1) {
+            cls += " navigation-bar-item-selected";
+            this.selectedItem.@["class"] = cls;
+        }
+
+        log(cls);
+
+  }
+
+}

@@ -1,0 +1,43 @@
+include "../basewidget.tis"
+
+class IconTextList: BaseWidget {
+
+  function _attached() {
+
+      this.rootElement = new Element ("div");
+      this.rootElement.@["class"] = "list-item-container";
+      this.insert(this.rootElement);
+
+      this.template = "<span><img src=\"{image}\"/><p>{content}</p></span>";
+  }
+
+  function setTemplate (template) {
+      this.template = template;
+  }
+
+  function add (params) {
+
+      var item = this.template;
+      log(item);
+      for (var k in params) {
+          var v = params[k];
+          item = item.replace ("{"+k+"}", v);
+      }
+      var el = new Element ("div");
+      el.append (item);
+      this.rootElement.insert (el);
+
+      var myself = this;
+
+      el.on ("click", function (e) {
+          if (myself.lastSelected !== undefined && myself.lastSelected !== null) {
+            myself.lastSelected.@["class"] = null;
+          }
+          myself.lastSelected = el;
+          el.@["class"] = "list-selected-item";
+      });
+
+  }
+}
+
+

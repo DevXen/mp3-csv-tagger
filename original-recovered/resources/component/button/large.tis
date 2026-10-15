@@ -1,0 +1,16 @@
+include "../basewidget.tis"
+
+class LargeButton: BaseWidget {
+
+  function _attached() {
+
+	var imagePath = this.@["image"];
+
+    var image = new Element ("img");
+	image.@["src"] = imagePath;
+	this.insert (image);
+
+  }
+
+
+}

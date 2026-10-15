@@ -1,0 +1,30 @@
+
+
+vlist
+{
+  display:block;
+  height:*;
+  width:300px;
+  //NOTE: For some reason properties set here do not appear to be able to be overidden in other stylesheets.
+  //border:1px solid black;
+  overflow: auto;
+  prototype: VList url(vlist.tis);
+}
+
+vlist > li {
+  //NOTE: For some reason properties set here do not appear to be able to be overidden in other stylesheets.
+  display:block;
+  padding:0 6dip;
+  line-height:31dip;
+  //background-color:#fff #fff #ddd #ddd;
+}
+
+vlist > li:hover {
+  //NOTE: For some reason properties set here do not appear to be able to be overidden in other stylesheets.
+  //background-color:#fff #fff #bcd #bcd;
+}
+
+vlist > li:current {
+  //NOTE: For some reason properties set here do not appear to be able to be overidden in other stylesheets.
+  //background-color:#bcd;
+}
