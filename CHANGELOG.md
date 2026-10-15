@@ -1,5 +1,58 @@
 # Changelog
 
+## 1.5.0 — 2026-10-15
+
+Desktop 1.4.0 + Android app 1.2.0. Everything below works through
+the same preview → apply → change log → tag-snapshot undo path as
+CSV changes, on both platforms unless noted.
+
+* **Edit values in the preview** — double-click a preview cell
+  (Android: tap it) and type the correction. A manual edit outranks
+  every CSV candidate, is marked "✎ manual edit", and can be
+  reverted to the candidate value. The change log gains a trailing
+  **Source** column on both platforms — the CSV file name, or the
+  feature that produced the value ("manual edit", "tag sync", …).
+* **Two-library tag sync** — pair files by relative path
+  (case/separator-insensitive), choose which tags to copy plus an
+  optional cover-art copy, and get a normal preview of the target
+  library. A tag copies only when the source value is non-empty and
+  differs; unpaired files are listed and never touched. Desktop:
+  "Sync tags…" dialog + `sync-tags` CLI. Android: "Sync tags from
+  another folder…".
+* **Fingerprint matching (desktop)** — with the external `fpcalc`
+  (Chromaprint) tool detected on PATH, sync can also pair leftover
+  files by identical fingerprint + duration, and the library report
+  gains a "Same recordings" section — groups sharing a fingerprint
+  with differing tags, with a unify-from-one-file action through
+  the preview. Fingerprints are cached by path/size/mtime.
+  **AcoustID** lookup is opt-in with your own free API key (Setup),
+  rate-limited, fills only empty Title/Lead Performer/Album/Year,
+  as a preview. No key = no network. See ROADMAP for why Android
+  does not fingerprint.
+* **Tags-vs-path consistency report** — read-only on both
+  platforms: apply a `{Tag}` filename/path pattern to every file
+  and list where the stored tags disagree with the path-implied
+  values. The report module has no write path at all; the CLI is
+  `report --pattern`, the GUIs have a "Consistency check…" dialog.
+* **Album-grouped preview + completeness** — the preview can group
+  rows by album (desktop toggle, Android checkbox), and a
+  completeness report counts per album how many tracks have Title,
+  Lead Performer, Album, Year, Genre, Track Number and Cover Art,
+  with a library-wide summary (`report --completeness` on the CLI;
+  Android's library report also covers duplicates and spelling
+  variants now).
+* **Saved jobs** — a named bundle of folders, CSV layers + roles
+  and filename-pattern layers, saved once and rerun in one step
+  (desktop Files tab or `jobs` / `job-save` / `job-run`; Android
+  "Save current job…" / "Jobs…", plus launcher dynamic shortcuts
+  that open a job straight into its preview).
+* **Small things** — desktop drag & drop of files/folders/CSVs
+  onto the Files tab when the optional `tkinterdnd2` package is
+  present (a "Paste paths…" button covers the same job without
+  it); "Open in player" / ▶ plays a preview row's file read-only;
+  Android opens CSVs shared or opened from other apps (the file is
+  copied into app storage and layered from the copy).
+
 ## 1.4.0 — 2026-10-15
 
 * **Append export (desktop 1.3.0 + Android app 1.1.0)** — library

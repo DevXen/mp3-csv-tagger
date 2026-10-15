@@ -58,7 +58,13 @@ Notes:
   creates the header when it writes.
 - Scanning is parallel and fast — thousands of files take seconds. If a
   folder is on a slow network drive, the scan may take longer than the
-  rest of the run put together; that is the disk, not the program.""",
+  rest of the run put together; that is the disk, not the program.
+- If the optional drag-and-drop support (the tkinterdnd2 package) is
+  installed, you can also drop files and folders straight onto the
+  Files list — folders are added as scan paths, .csv files as layers.
+  Without it, the "Paste paths..." button does the same job from the
+  clipboard: copy paths in your file manager or terminal (one per
+  line) and paste them in. The Setup tab says which mode is active.""",
     ),
     (
         "CSV files and column roles",
@@ -268,9 +274,46 @@ column per Write tag:
   - Export preview CSV... saves the whole preview — file, tag, frame,
     old value, new value, changed?, candidate count, source CSV and
     row — for checking in a spreadsheet or keeping a record.
+  - "Group by album" (toolbar checkbox) rearranges the rows under
+    album headings — the Album value when there is one, the file's
+    folder name when there is not — so you can review one album at a
+    time. Grouping is display only; it changes nothing about Apply.
+  - "Open in player" opens the selected file in your system player so
+    you can hear what you are about to tag. It only reads the file.
+  - Any cell can also be edited by hand — see "Editing values by
+    hand".
 
 A preview is a snapshot. If you edit the CSVs, the roles, or the files
 on disk afterwards, build the preview again before applying.""",
+    ),
+    (
+        "Editing values by hand",
+        """\
+Sometimes one value in the preview is just wrong, and going back to
+the CSV to fix a single cell is overkill. You can type the correction
+straight into the preview:
+
+  - Double-click a cell (or select its row and press "Edit value...")
+    and type. Enter commits the edit; Esc cancels.
+  - An edited value shows with a pencil mark and "(manual edit)".
+    It outranks every CSV candidate for that cell, and the change log
+    records "manual edit" in its Source column, so hand edits are
+    always distinguishable from CSV-driven changes.
+  - Apply writes edited values exactly like CSV values, and the undo
+    snapshot covers them like everything else.
+  - To take an edit back, select the cell and use "Revert edit" (or
+    the editor's "Revert to ..." button): the manual value is removed
+    and the cell falls back to its selected CSV candidate.
+  - Editing a cover-art cell takes an image path, like a CSV cell; a
+    blank edit removes the cover (the preview says so).
+  - You can also edit a tag that no CSV proposed for that file:
+    "Edit value..." offers the file's tags from the last scan. That
+    creates a one-cell change out of thin air — handy for the odd
+    fix, not a way to retag a library.
+
+Manual edits live in the preview, not in any CSV. If you rebuild the
+preview, the edits are gone — apply them first, or expect to redo
+them.""",
     ),
     (
         "Cover art and lyrics",
@@ -313,7 +356,13 @@ on the Apply tab (default: a "mp3tagging" folder in your home
 directory):
 
   mp3tag_YYYYMMDD_HHMMSS.log.csv
-  Timestamp, File, Tag Name, ID3 Frame, Original/Old Value, New Value
+  Timestamp, File, Tag Name, ID3 Frame, Original/Old Value, New Value,
+  Source
+
+Source says where each written value came from: the CSV file's name
+for ordinary writes, or the feature that produced it — "manual edit"
+for values typed into the preview, "tag sync", "filename pattern",
+"MusicBrainz lookup", "AcoustID lookup" and so on.
 
 Keep these files. The log is the exact record of what every file used
 to say — your audit trail.
@@ -394,6 +443,40 @@ because two different files can share a name.
 row per pending CHANGE, for reviewing a run before you apply it.)""",
     ),
     (
+        "Syncing tags from another library",
+        """\
+If the same music lives in two places — a master library and a copy
+for the car, a second drive, a differently-organised mirror — the
+tags only have to be right in one of them. Files tab -> "Sync
+tags...", or:
+
+  mp3csvtagger sync-tags --source ~/Music --target ~/MusicCopy
+
+How it works:
+
+  - Files are paired by their path RELATIVE to each root, compared
+    case- and separator-insensitively: <source>/Rock/ABBA/Gold/01.mp3
+    pairs with <target>/Rock/ABBA/Gold/01.mp3. Pairs are never guessed
+    from tag values.
+  - Unpaired files — present on one side only — are listed, and are
+    never read for values or written to. Nothing is copied file-wise;
+    sync moves TAG VALUES, not audio.
+  - You choose which tags to copy (checkboxes, all on by default) and
+    whether cover art copies too. A tag copies only when the SOURCE
+    has a value and the target's differs — an empty source value can
+    never blank out the target — and a copied cover replaces the
+    target's picture only when they actually differ.
+  - The result is an ordinary preview (source "tag sync"): review it,
+    Apply it, undo it — the undo snapshot covers target files exactly
+    like a CSV run, including their old cover art when a cover
+    changes.
+  - Optional: "pair leftovers by fingerprint" also pairs files whose
+    relative paths do NOT match but whose audio fingerprints (and
+    durations, within two seconds) are identical — the same recording
+    filed under two names. That needs the fpcalc tool; see
+    "Fingerprints and AcoustID".""",
+    ),
+    (
         "Library report: duplicates and spellings",
         """\
 Files tab -> "Library report...", or mp3csvtagger report. Two checks:
@@ -421,6 +504,51 @@ changed automatically: different spellings might be deliberate
 CLI does the same with report --out <file>.""",
     ),
     (
+        "Checking tags against file paths",
+        """\
+Your folder and file names follow your own convention — so they are
+a useful lie detector for the tags. Files tab -> "Consistency
+check...", or:
+
+  mp3csvtagger report --folder ~/Music --pattern \\
+      "{Lead Performer}/{Album}/{Track Number} - {Title}"
+
+The pattern is the same {Tag} pattern used for "Tags from filenames
+and paths", matched against each file's path. For every captured
+value, the check compares it with the tag actually stored in the
+file (using the normal matching comparison, so case and punctuation
+do not count as disagreements) and reports the mismatches: file, tag,
+what the path says, what the tags say. Files whose paths do not fit
+the pattern are listed separately — usually a sign of a different
+layout in that corner of the library, not an error.
+
+This check is READ-ONLY by construction: there is no Apply button
+and no code path from it to writing tags. If a mismatch is a genuine
+tag error, fix it any way you like — a CSV, a filename-pattern layer
+(the same pattern, run as a source), or a manual edit in the preview.
+Save the findings with "Save report..." (.txt, or .csv for one row
+per mismatch).""",
+    ),
+    (
+        "Album completeness",
+        """\
+Preview tab -> "Completeness..." (or mp3csvtagger report
+--completeness) answers "how finished is this album?": for every
+album in the scanned files it counts how many tracks have each of
+Title, Lead Performer, Album, Year, Genre, Track Number and Cover
+Art, with a percentage per album and a library-wide summary line.
+
+Albums are grouped by artist + album name. Files with no Album tag
+gather under "(no album)" — for a library that uses album folders,
+that group is your untagged backlog. Year counts either a Year or a
+Recording Date value, and cover art is counted by presence only (the
+pictures themselves are never loaded).
+
+Like the library report, this is read-only analysis: it shows where
+the gaps are; filling them (CSVs, lookups, sync) stays a separate,
+previewed step.""",
+    ),
+    (
         "Filling missing tags from MusicBrainz",
         """\
 Sometimes a file has a Title and an Artist but nothing else. The
@@ -443,6 +571,53 @@ gaps — strictly opt-in:
     changes nothing — there are no partial writes.""",
     ),
     (
+        "Fingerprints and AcoustID",
+        """\
+Matching works on TEXT — tags, CSV values, file names. Fingerprints
+match on the AUDIO itself: two files with the same Chromaprint
+fingerprint are the same recording, whatever their tags say.
+
+Fingerprints come from an external tool, fpcalc (part of
+Chromaprint). It is NOT bundled: install it (Linux: your distro's
+libchromaprint-tools package; macOS: brew install chromaprint;
+Windows: the fpcalc download from acoustid.org), and the Setup tab
+will show "fpcalc: <path>" instead of "not detected". Everything in
+this topic quietly disables itself when fpcalc is missing — nothing
+else in the program needs it. `mp3csvtagger fingerprint-status`
+prints the same information. Results are cached in
+~/.mp3csvtagger/fingerprint-cache.json, keyed by file path, size and
+modification time, so re-scans only fingerprint new or changed
+files.
+
+Two uses, both inside this program (no network, no key):
+
+  - Pairing leftovers in tag sync (see "Syncing tags from another
+    library"): files whose paths differ but whose fingerprints and
+    durations (within two seconds) agree are paired as the same
+    recording.
+  - "Same recordings" in the Library report dialog (CLI:
+    mp3csvtagger report --same-recordings): groups of files that
+    share a fingerprint but whose tags DIFFER. Per group you can
+    pick the file whose tags are right and "unify" the others onto
+    it — through an ordinary preview, so it is reviewed, logged and
+    undoable like everything else.
+
+ACOUSTID (optional, online) identifies a recording against the
+AcoustID database: get a free API key from acoustid.org, paste it
+into Setup (stored locally in ~/.mp3csvtagger/settings.json, never
+in project files), then:
+
+  mp3csvtagger acoustid --folder ~/Music [--apply]
+
+Each file is fingerprinted and its best match offers values for its
+EMPTY Title / Lead Performer / Album / Year only — as a preview,
+never a direct write. Lookups are rate-limited to one per second,
+and only a fingerprint and a duration leave your machine (plus your
+key). With no key saved, the command explains this and stops before
+doing anything; the fingerprint features above keep working
+offline.""",
+    ),
+    (
         "Projects",
         """\
 A project collects everything a run needs:
@@ -461,6 +636,33 @@ CSVs it names too; paths inside are your machine's paths).
 
 Tip: one project per library or per job ("Vinyl rips", "Podcast
 archive") is easier to manage than one giant project for everything.""",
+    ),
+    (
+        "Saved jobs",
+        """\
+A job is a whole run under one name: the MP3 paths, the CSV layers
+with their roles and on/off states, and any filename-pattern layer
+you used — saved as a small JSON file in ~/.mp3csvtagger/jobs, so a
+recurring job becomes "pick the name, press Run".
+
+Files tab -> Jobs row:
+
+  - "Save current as job..." stores the setup you have right now,
+    including the last filename pattern you applied as a layer.
+  - "Run job" swaps the job in as the current setup, scans, builds
+    the preview — including its pattern layers — and takes you to
+    the Preview tab. Applying is still a separate, deliberate step.
+  - "Delete job" removes the saved file (never anything else).
+
+From the command line:
+
+  mp3csvtagger jobs                 list saved jobs
+  mp3csvtagger job-save NAME project.mp3p.json
+  mp3csvtagger job-run NAME [--apply]
+
+One difference: job-save from the CLI stores the project only — it
+has no GUI session, so no filename-pattern layer is captured (it
+says so when it runs). Save pattern-carrying jobs from the GUI.""",
     ),
     (
         "The command line",
@@ -482,6 +684,15 @@ scheduled jobs. The program is `mp3csvtagger`:
   mp3csvtagger from-filename --folder ~/Music \
       --pattern "{Lead Performer} - {Title}" [--apply]
   mp3csvtagger report --folder ~/Music
+  mp3csvtagger report --folder ~/Music --completeness
+  mp3csvtagger report --folder ~/Music --pattern \\
+      "{Lead Performer}/{Album}/{Track Number} - {Title}"
+  mp3csvtagger report --folder ~/Music --same-recordings
+  mp3csvtagger sync-tags --source ~/Music --target ~/MusicCopy
+  mp3csvtagger acoustid --folder ~/Music [--apply]
+  mp3csvtagger fingerprint-status
+  mp3csvtagger jobs
+  mp3csvtagger job-run "Vinyl rips" [--apply]
   mp3csvtagger presets
   mp3csvtagger lookup --folder ~/Music --fields Album,Year,Genre
 

@@ -48,6 +48,30 @@ in the Setup tab. Full detail: [docs/CSV_FORMAT.md](docs/CSV_FORMAT.md).
   re-scanned files updating their rows in place.
 * **Library report** — find duplicate tracks and inconsistent spellings
   (`Beatles` vs `beatles` vs `BEATLES`) and unify them with an explicit pick.
+* **Edit in the preview** — double-click any preview cell and type the
+  correction; a manual edit outranks every CSV value, is marked in the
+  preview, and is logged with Source "manual edit". Revert restores the
+  CSV value.
+* **Tag sync** — copy tags (and, if you tick the box, cover art) from a
+  twin library into this one, pairing files by relative path. Only
+  differing, non-empty source values copy; unpaired files are listed
+  and never touched. The result is a normal preview — reviewed,
+  applied and undoable like everything else.
+* **Consistency check** — a strictly read-only report of where tags
+  disagree with the values your folder/file naming implies (checked
+  with the same `{Tag}` patterns). There is no apply path from it.
+* **Album completeness** — per album: how many tracks have Title,
+  Artist, Album, Year, Genre, Track Number and Cover Art, plus a
+  library-wide summary; the preview can also group rows by album.
+* **Fingerprints (desktop)** — with the external `fpcalc` tool
+  (Chromaprint) on your PATH, find files that are the *same recording*
+  under different names/tags, unify them via preview, pair sync
+  leftovers by audio instead of path, and optionally identify
+  recordings against AcoustID with your own free API key (the only
+  fingerprint feature that uses the network, and only when asked).
+* **Saved jobs** — store a whole run (folders, CSV layers + roles,
+  filename patterns) under a name and rerun it in one step from the
+  Files tab or `mp3csvtagger job-run`.
 * **Role presets** — save a column-role setup once, reuse it on every
   new CSV; two presets ship built in.
 * **Cover art & lyrics** — embed front-cover images from a CSV column,

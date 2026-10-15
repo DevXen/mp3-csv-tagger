@@ -49,6 +49,15 @@ is selected. Select the row and use **Choose value…** to pick a different
 one. **Export preview CSV…** saves the whole preview (file, tag, old,
 new, changed, source CSV + row) for review in a spreadsheet.
 
+You can also correct a value by hand: double-click a cell (or use
+**Edit value…**) and type — the edit is marked `✎ … (manual edit)`,
+outranks every CSV candidate, and **Revert edit** restores the CSV
+value. **Group by album** rearranges rows under album headings for
+review, **Open in player** plays the selected file read-only, and
+**Completeness…** reports, per album, how many tracks have each of
+Title / Lead Performer / Album / Year / Genre / Track Number / Cover
+Art.
+
 ### 4. Apply
 
 **Apply tab.** Choose the *Log/Backup Folder* (default `~/mp3tagging`),
@@ -58,9 +67,11 @@ path of the change log:
 
 ```
 mp3tag_20261015_103708.log.csv
-Timestamp, File, Tag Name, ID3 Frame, Original/Old Value, New Value
+Timestamp, File, Tag Name, ID3 Frame, Original/Old Value, New Value, Source
 ```
 
+The Source column names where each value came from — the CSV file,
+or the feature that produced it ("manual edit", "tag sync", …).
 Keep these logs: they are the record of what every file used to say.
 
 Alongside the log, Apply writes an **undo snapshot**
@@ -102,7 +113,33 @@ log folder. They are plain JSON — you can read and even edit them.
 * **Library report…** — duplicate tracks (same Title + Lead
   Performer) and spelling variants of a tag (same cleaned-up value,
   different spellings). Pick the spelling to keep and the report
-  builds the fixing preview; nothing changes automatically.
+  builds the fixing preview; nothing changes automatically. The
+  dialog also has a **Same recordings** section: with the external
+  `fpcalc` tool installed (Chromaprint; the Setup tab shows whether
+  it was detected), files that share an audio fingerprint but differ
+  in tags are grouped, and you can unify a group onto one file's
+  tags through a normal preview.
+* **Sync tags…** — copy tag values from a second library (the
+  *source*) into this one (the *target*), pairing files by relative
+  path; choose the tags and whether cover art copies too. Only
+  non-empty source values that differ are copied; unpaired files
+  are listed and never touched; the result is a normal preview
+  (CLI: `sync-tags`).
+* **Consistency check…** — a read-only report comparing each
+  file's tags against the values a `{Tag}` pattern captures from
+  its path; mismatches are listed with both values. There is no
+  apply path from this dialog (CLI: `report --pattern`).
+* **Jobs** (Files tab row) — save the current setup (folders, CSV
+  layers + roles, the last filename pattern used) under a name and
+  rerun it in one step (CLI: `jobs`, `job-save`, `job-run`).
+* **Drag & drop / Paste paths…** — with the optional `tkinterdnd2`
+  package installed, files and folders can be dropped onto the
+  Files tab (folders become scan paths, `.csv` files become
+  layers); otherwise **Paste paths…** accepts paths from the
+  clipboard, one per line. The Setup tab shows which mode is
+  active, and also the fingerprint status plus the AcoustID API
+  key field (for the opt-in `acoustid` command; the key is stored
+  in `~/.mp3csvtagger/settings.json`, never in project files).
 * **Role presets** (CSV tab) — save a column-role setup once
   (`~/.mp3csvtagger/presets/*.json`) and apply it to future CSVs;
   two presets ship built in.
@@ -122,7 +159,11 @@ text is `docs/HELP.md`).
 Everything above works headless. `mp3csvtagger --help`, and each
 sub-command has its own `--help`. The project flow and the one-shot
 `run` form are shown in the README; `run` is a dry run unless you pass
-`--apply`.
+`--apply`. Beyond the project commands there are `sync-tags`,
+`report` (with `--pattern`, `--completeness` and `--same-recordings`
+modes), `acoustid`, `fingerprint-status`, `jobs`, `job-save` and
+`job-run` — each documented in the Help tab's "The command line"
+topic.
 
 ## Tips & limits
 
