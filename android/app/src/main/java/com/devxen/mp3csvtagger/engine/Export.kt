@@ -197,15 +197,21 @@ fun appendTagsCsv(
 /**
  * The change log written with every Apply run. Format is the shared one:
  * file name `mp3tag_YYYYMMDD_HHMMSS.log.csv`, columns
- * Timestamp, File, Tag Name, ID3 Frame, Original/Old Value, New Value.
+ * Timestamp, File, Tag Name, ID3 Frame, Original/Old Value, New Value, Source.
+ * The trailing Source column (round 2, matching the desktop log) records
+ * the selected candidate's source name for each write — a CSV file name,
+ * "tag sync", a filename pattern, or "manual edit" for a hand-typed value.
  * It is the human-readable companion to the tag-snapshot undo file that
  * sits next to it in the same run folder.
  */
 object ChangeLog {
     val headers: List<String> =
-        listOf("Timestamp", "File", "Tag Name", "ID3 Frame", "Original/Old Value", "New Value")
+        listOf("Timestamp", "File", "Tag Name", "ID3 Frame", "Original/Old Value", "New Value", "Source")
 
     /** One log row for a single tag write. */
-    fun row(timestamp: String, file: String, tagName: String, frame: String, oldValue: String, newValue: String): List<String> =
-        listOf(timestamp, file, tagName, frame, oldValue, newValue)
+    fun row(
+        timestamp: String, file: String, tagName: String, frame: String,
+        oldValue: String, newValue: String, source: String,
+    ): List<String> =
+        listOf(timestamp, file, tagName, frame, oldValue, newValue, source)
 }

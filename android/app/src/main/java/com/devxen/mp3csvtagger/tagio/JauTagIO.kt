@@ -15,6 +15,24 @@ import java.io.File
 data class TagChange(val frame: String, val tagName: String, val value: String)
 
 /**
+ * One embedded cover image, carried as raw bytes plus the APIC fields a
+ * faithful copy needs. Used only by tag sync's cover path: the bytes are
+ * read from a paired SOURCE file at apply time and written to its target
+ * twin — they are never part of a scan or a preview (see engine Sync.kt).
+ */
+data class CoverArtwork(
+    val bytes: ByteArray,
+    val mimeType: String,
+    val pictureType: Int,
+    val description: String,
+) {
+    // ByteArray in a data class: identity equals/hashCode, which is fine —
+    // artwork is read, written and discarded, never compared.
+    override fun equals(other: Any?): Boolean = this === other
+    override fun hashCode(): Int = bytes.size
+}
+
+/**
  * Tag reading/writing through jaudiotagger, on real [File]s.
  *
  * Used for two things:
@@ -50,6 +68,54 @@ object JauTagIO {
             }
         }
         return result
+    }
+
+    /** True when [file]'s tag carries at least one artwork image. */
+    fun hasArtwork(file: File): Boolean {
+        val tag = AudioFileIO.read(file).tag ?: return false
+        return tag.artworkList.isNotEmpty()
+    }
+
+    /**
+     * Read [file]'s first embedded cover image, or null when it has none.
+     * This loads the image bytes — callers do it lazily, for one paired
+     * file at a time, only while applying a sync cover change.
+     */
+    fun readArtwork(file: File): CoverArtwork? {
+        val tag = AudioFileIO.read(file).tag ?: return null
+        val artwork = tag.firstArtwork ?: return null
+        val bytes = artwork.binaryData ?: return null
+        return CoverArtwork(
+            bytes = bytes,
+            mimeType = artwork.mimeType ?: "image/jpeg",
+            pictureType = artwork.pictureType,
+            description = artwork.description ?: "",
+        )
+    }
+
+    /**
+     * Replace [file]'s cover art with [artwork] and commit, in a single
+     * save. Any previous APIC frames are removed first, so the file ends
+     * with exactly the source file's cover — the same "replace" rule the
+     * text-frame writers follow. Every other frame is preserved.
+     */
+    fun writeArtwork(file: File, artwork: CoverArtwork) {
+        val audioFile = AudioFileIO.read(file)
+        val tag = audioFile.getTagOrCreateAndSetDefault()
+        try {
+            tag.deleteArtworkField()
+        } catch (e: Exception) {
+            // No artwork field to delete (or a tag type that cannot hold
+            // one and will fail at setField below anyway): keep going.
+            if (tag.artworkList.isNotEmpty()) throw e
+        }
+        val newArtwork = org.jaudiotagger.tag.images.ArtworkFactory.getNew()
+        newArtwork.binaryData = artwork.bytes
+        newArtwork.mimeType = artwork.mimeType
+        newArtwork.pictureType = artwork.pictureType
+        newArtwork.description = artwork.description
+        tag.setField(newArtwork)
+        audioFile.commit()
     }
 
     /** Apply [changes] to [file]'s tag and commit, in a single save. */

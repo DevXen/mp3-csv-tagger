@@ -43,13 +43,38 @@ object Id3Reader {
     // ------------------------------------------------------------------
 
     /**
+     * The result of scanning one file's tag block: its text tags plus
+     * whether it carries embedded cover art.
+     *
+     * Cover presence is all the scan records — never the image bytes.
+     * Artwork can be megabytes per file, and everything the app decides
+     * from a scan (completeness, tag sync) only needs to know art is
+     * there; the bytes are read lazily, per file, only when a sync run
+     * is actually applying one (see MainActivity's cover apply path).
+     */
+    data class TagScan(
+        val tags: Map<String, String>,
+        /** True when the tag block contains an APIC (picture) frame. */
+        val hasCover: Boolean,
+    )
+
+    /**
      * Read a file's text tags from [stream]. Returns an empty map when the
      * file has no ID3v2 header. Keys are frame ids ("TIT2") or, for TXXX
      * frames, the frame description ("Subgenre") — the shared tag-name
      * convention. PRIV and APIC frames are ignored.
      */
-    fun readTags(stream: InputStream): Map<String, String> {
-        val block = readBlock(stream, stopAfterTag = true) ?: return emptyMap()
+    fun readTags(stream: InputStream): Map<String, String> = readScan(stream).tags
+
+    /**
+     * Read a file's tags AND cover presence in one pass over the tag
+     * block. Cover presence comes free here: the frame walk already
+     * visits every frame header, so spotting an APIC frame costs
+     * nothing and retains no bytes. Everything else behaves exactly
+     * like [readTags], including the [FallbackNeeded] cases.
+     */
+    fun readScan(stream: InputStream): TagScan {
+        val block = readBlock(stream, stopAfterTag = true) ?: return TagScan(emptyMap(), hasCover = false)
         val result = LinkedHashMap<String, String>()
         for ((frameId, rawFrame) in block.frames) {
             if (frameId in TagNames.ignoredFrames) continue
@@ -58,7 +83,7 @@ object Id3Reader {
             val (name, value) = pair
             if (name.isNotEmpty()) result[name] = value
         }
-        return result
+        return TagScan(result, hasCover = block.frames.any { it.first == "APIC" })
     }
 
     /**

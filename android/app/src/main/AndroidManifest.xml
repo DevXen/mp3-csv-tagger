@@ -15,12 +15,44 @@
         android:supportsRtl="true"
         android:theme="@android:style/Theme.Material.Light.NoActionBar">
 
+        <!--
+          singleTop: "Open with" / share-sheet CSV imports and job
+          shortcuts that arrive while the app is already running are
+          delivered to onNewIntent instead of stacking a second copy of
+          the activity (and a second, divergent layer list) on top.
+        -->
         <activity
             android:name=".MainActivity"
-            android:exported="true">
+            android:exported="true"
+            android:launchMode="singleTop">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <!--
+              Open-with: another app (Files, Drive, a mail client) offers
+              this app for CSV files. The incoming document is COPIED into
+              app-private storage before it becomes a layer, because the
+              grant behind an intent like this is temporary — the copy is
+              what keeps the layer working across restarts. text/plain is
+              deliberately NOT claimed: it would offer this app for every
+              text file on the phone, and a .csv pathPattern is too
+              unreliable across providers to be worth it.
+            -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/csv" />
+                <data android:mimeType="text/comma-separated-values" />
+                <data android:mimeType="application/csv" />
+            </intent-filter>
+            <!-- Share-sheet: "Share -> MP3 CSV Tagger" with a CSV file. -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/csv" />
+                <data android:mimeType="text/comma-separated-values" />
+                <data android:mimeType="application/csv" />
             </intent-filter>
         </activity>
 

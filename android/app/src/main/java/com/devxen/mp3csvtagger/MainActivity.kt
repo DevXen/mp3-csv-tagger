@@ -1,9 +1,15 @@
 package com.devxen.mp3csvtagger
 
 import android.app.AlertDialog
+import android.content.ActivityNotFoundException
 import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
 import android.net.Uri
 import android.os.Bundle
+import android.os.Parcelable
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
@@ -18,21 +24,44 @@ import android.widget.ScrollView
 import android.widget.TextView
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.pm.ShortcutInfoCompat
+import androidx.core.content.pm.ShortcutManagerCompat
+import androidx.core.graphics.drawable.IconCompat
 import androidx.documentfile.provider.DocumentFile
 import androidx.lifecycle.lifecycleScope
+import com.devxen.mp3csvtagger.engine.COVER_PRESENT
+import com.devxen.mp3csvtagger.engine.COVER_TAG_NAME
+import com.devxen.mp3csvtagger.engine.Cell
 import com.devxen.mp3csvtagger.engine.CsvLayer
 import com.devxen.mp3csvtagger.engine.CsvParser
 import com.devxen.mp3csvtagger.engine.CsvSource
 import com.devxen.mp3csvtagger.engine.CsvWriter
 import com.devxen.mp3csvtagger.engine.FilenamePatternSource
+import com.devxen.mp3csvtagger.engine.Job
+import com.devxen.mp3csvtagger.engine.JobCsvLayer
+import com.devxen.mp3csvtagger.engine.JobLayer
+import com.devxen.mp3csvtagger.engine.JobPatternLayer
 import com.devxen.mp3csvtagger.engine.LayerSource
 import com.devxen.mp3csvtagger.engine.Mp3Item
 import com.devxen.mp3csvtagger.engine.Preview
+import com.devxen.mp3csvtagger.engine.PreviewRow
 import com.devxen.mp3csvtagger.engine.Role
+import com.devxen.mp3csvtagger.engine.SYNC_SOURCE_NAME
+import com.devxen.mp3csvtagger.engine.ValuesSource
+import com.devxen.mp3csvtagger.engine.albumCompleteness
 import com.devxen.mp3csvtagger.engine.buildPreview
+import com.devxen.mp3csvtagger.engine.buildSyncValues
 import com.devxen.mp3csvtagger.engine.appendTagsCsv
+import com.devxen.mp3csvtagger.engine.checkConsistency
+import com.devxen.mp3csvtagger.engine.coverTokenSourceId
+import com.devxen.mp3csvtagger.engine.defaultSyncTags
+import com.devxen.mp3csvtagger.engine.duplicateGroups
 import com.devxen.mp3csvtagger.engine.exportTagsCsv
+import com.devxen.mp3csvtagger.engine.pairLibraries
+import com.devxen.mp3csvtagger.engine.renderCompletenessText
+import com.devxen.mp3csvtagger.engine.variantGroups
 import com.devxen.mp3csvtagger.engine.ChangeLog
+import com.devxen.mp3csvtagger.tagio.CoverArtwork
 import com.devxen.mp3csvtagger.tagio.Id3Reader
 import com.devxen.mp3csvtagger.tagio.JauTagIO
 import com.devxen.mp3csvtagger.tagio.SnapshotEntry
@@ -66,8 +95,23 @@ import java.util.Locale
  * jaudiotagger, and streamed back — see [applyPreview].
  *
  * Undo is a tag snapshot, not a file backup — see [TagSnapshot].
+ *
+ * Round 2 additions, all built on the same scan/preview/apply machinery:
+ * tappable preview cells with hand-typed manual edits, group-by-album
+ * preview, tag sync from a second folder (including cover art, resolved
+ * from the source file at apply time), read-only consistency and library
+ * reports, named jobs (with launcher shortcuts), and CSV files arriving
+ * through Open-with / the share sheet.
  */
 class MainActivity : ComponentActivity() {
+
+    companion object {
+        /** Intent action of the dynamic job shortcuts (see the jobs section). */
+        const val ACTION_RUN_JOB = "com.devxen.mp3csvtagger.RUN_JOB"
+
+        /** String extra carrying the job name on an [ACTION_RUN_JOB] intent. */
+        const val EXTRA_JOB_NAME = "job_name"
+    }
 
     // ------------------------------------------------------------------
     // State
@@ -90,6 +134,30 @@ class MainActivity : ComponentActivity() {
     private var preview: Preview? = null
     private var busy = false
 
+    /**
+     * The SOURCE library's scanned files from the latest tag-sync run,
+     * by item id. A sync preview's cover-art cells carry only an opaque
+     * token naming the source file (see the engine's Sync.kt); the bytes
+     * are read from these files lazily at apply time, so the scan is
+     * kept here until then. Text sync values need nothing from it.
+     */
+    private var syncSourceById: Map<String, ScannedFile> = emptyMap()
+
+    /** Group-by-album preview state (display only; the preview is untouched). */
+    private var groupByAlbum = false
+    private val collapsedAlbums = mutableSetOf<String>()
+
+    /**
+     * Work handed over by the launching intent, done once state restore
+     * has finished: a job to run and/or a CSV that arrived through
+     * Open-with or the share sheet. Restore rebuilds the layer list
+     * asynchronously, so acting on the intent before it completes could
+     * have the restore's rebuild wipe out (or duplicate) the intent's
+     * layer — the intent waits here instead. See [afterRestore].
+     */
+    private var pendingJobName: String? = null
+    private var pendingImportUri: Uri? = null
+
     // ------------------------------------------------------------------
     // Views (built in code; the layout is a simple vertical flow)
     // ------------------------------------------------------------------
@@ -100,6 +168,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var progressText: TextView
     private lateinit var previewBox: LinearLayout
     private lateinit var applyButton: Button
+    private lateinit var groupByAlbumCheck: CheckBox
 
     private val prefs by lazy { getSharedPreferences("state", MODE_PRIVATE) }
 
@@ -126,6 +195,21 @@ class MainActivity : ComponentActivity() {
     ) { uris ->
         if (uris.isEmpty()) return@registerForActivityResult
         lifecycleScope.launch { addCsvLayers(uris) }
+    }
+
+    // Tag sync's source folder: a second, separate tree that is scanned
+    // read-only and never becomes the app's working folder.
+    private val pickSyncTree = registerForActivityResult(
+        ActivityResultContracts.OpenDocumentTree()
+    ) { uri ->
+        if (uri == null) return@registerForActivityResult
+        // Read-only is all a sync source ever needs — it is never written.
+        try {
+            contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        } catch (_: SecurityException) {
+            // Non-persistable grant: still usable for this session's scan.
+        }
+        lifecycleScope.launch { startSyncWith(uri) }
     }
 
     private var pendingExportText: String? = null
@@ -181,12 +265,75 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         buildLayout()
+        // Before restoring: an intent that launched the app (a job
+        // shortcut, an Open-with / shared CSV) is recorded now and acted
+        // on when restore finishes — see pendingJobName/pendingImportUri.
+        captureLaunchIntent(intent)
         restoreState()
         renderAll()
         if (treeUri == null) {
             setStatus("Start by picking your music folder. New here? Tap Help — it covers the whole workflow.")
         } else {
             setStatus("Folder: $treeName. Add a CSV layer, then Build Preview.")
+        }
+    }
+
+    /**
+     * New intents while the app is already running (the activity is
+     * singleTop): a job shortcut tap or another shared CSV. State is
+     * already restored in this case, so the intent can be acted on
+     * straight away.
+     */
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        captureLaunchIntent(intent)
+        handlePendingIntent()
+    }
+
+    /**
+     * Pick the actionable parts out of an incoming intent: an
+     * [ACTION_RUN_JOB] action's job name, and a CSV document arriving as
+     * a VIEW data URI or a SEND stream extra. Anything else (the plain
+     * launcher intent) records nothing.
+     */
+    private fun captureLaunchIntent(intent: Intent?) {
+        if (intent == null) return
+        if (intent.action == ACTION_RUN_JOB) {
+            intent.getStringExtra(EXTRA_JOB_NAME)?.let { pendingJobName = it }
+        }
+        when (intent.action) {
+            Intent.ACTION_VIEW -> intent.data?.let { pendingImportUri = it }
+            Intent.ACTION_SEND -> {
+                @Suppress("DEPRECATION")
+                (intent.getParcelableExtra<Parcelable>(Intent.EXTRA_STREAM) as? Uri)
+                    ?.let { pendingImportUri = it }
+            }
+        }
+    }
+
+    /** Called when state restore has fully rebuilt the layer list. */
+    private fun afterRestore() {
+        handlePendingIntent()
+    }
+
+    /** Act on whatever [captureLaunchIntent] recorded, exactly once each. */
+    private fun handlePendingIntent() {
+        val jobName = pendingJobName
+        val importUri = pendingImportUri
+        if (jobName == null && importUri == null) return
+        pendingJobName = null
+        pendingImportUri = null
+        lifecycleScope.launch {
+            if (importUri != null) importSharedCsv(importUri)
+            if (jobName != null) {
+                val job = loadSavedJobs().firstOrNull { it.name == jobName }
+                if (job == null) {
+                    showMessage("Job not found", "The saved job \"$jobName\" no longer exists.")
+                } else {
+                    runJob(job)
+                }
+            }
         }
     }
 
@@ -256,7 +403,31 @@ class MainActivity : ComponentActivity() {
             "Undo last run" to { undoClicked() },
         ))
 
+        // Round 2 tools. Sync produces an ordinary preview (applied and
+        // undone the usual way); the two reports are strictly read-only.
+        content.addView(buttonRow(
+            "Sync tags from another folder…" to { syncClicked() },
+            "Consistency check…" to { consistencyClicked() },
+        ))
+        content.addView(buttonRow(
+            "Library report…" to { libraryReportClicked() },
+        ))
+
+        content.addView(sectionTitle("Jobs"))
+        content.addView(buttonRow(
+            "Save current job…" to { saveJobClicked() },
+            "Jobs…" to { showJobsDialog() },
+        ))
+
         content.addView(sectionTitle("Preview"))
+        groupByAlbumCheck = CheckBox(this).apply {
+            text = "Group by album"
+            setOnCheckedChangeListener { _, checked ->
+                groupByAlbum = checked
+                renderPreview()
+            }
+        }
+        content.addView(groupByAlbumCheck)
         previewBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         content.addView(previewBox)
 
@@ -353,32 +524,116 @@ class MainActivity : ComponentActivity() {
         for (error in current.scanErrors) {
             previewBox.addView(TextView(this).apply { text = "⚠ $error" })
         }
-        for (row in current.rows) {
-            previewBox.addView(TextView(this).apply {
-                text = row.displayName
-                setTypeface(null, android.graphics.Typeface.BOLD)
-                setPadding(0, dp(10), 0, 0)
-            })
-            for ((tagName, cell) in row.cells) {
-                val label = buildString {
-                    append("$tagName: ")
-                    if (cell.oldValue.isEmpty()) append("(empty)") else append(cell.oldValue)
-                    append(" → ")
-                    append(cell.value)
-                    if (cell.hasMultiple) append("  (${cell.candidates.size} values — tap to choose)")
-                    if (!cell.changed) append("  (no change)")
-                }
+        if (groupByAlbum) {
+            // Rows grouped under collapsible album headers. Grouping is
+            // a display concern only: the Preview object (and Apply)
+            // keeps its own flat row order either way.
+            val groups = LinkedHashMap<String, MutableList<PreviewRow>>()
+            for (row in current.rows) groups.getOrPut(albumOf(row)) { mutableListOf() } += row
+            for ((album, rows) in groups) {
+                val collapsed = album in collapsedAlbums
+                val changes = rows.sumOf { it.changeCount }
                 previewBox.addView(TextView(this).apply {
-                    text = label
-                    setPadding(dp(12), dp(1), 0, dp(1))
-                    if (cell.hasMultiple) {
-                        setOnClickListener { showCandidateChooser(row.itemId, tagName) }
+                    text = "${if (collapsed) "▸" else "▾"} $album (${rows.size} file(s), $changes change(s))"
+                    setTypeface(null, android.graphics.Typeface.BOLD)
+                    setPadding(0, dp(12), 0, dp(2))
+                    setOnClickListener {
+                        if (collapsed) collapsedAlbums.remove(album) else collapsedAlbums += album
+                        renderPreview()
                     }
                 })
+                if (!collapsed) rows.forEach { renderPreviewRow(it) }
             }
+        } else {
+            for (row in current.rows) renderPreviewRow(row)
         }
         applyButton.visibility = if (current.totalChanges > 0) View.VISIBLE else View.GONE
         applyButton.text = "Apply ${current.totalChanges} change(s)"
+    }
+
+    /**
+     * The album a preview row belongs to, for group-by-album: the
+     * row's Album value (the value the preview would write, falling
+     * back to the file's stored album), then the top folder of the
+     * file's relative path, then a plain placeholder for a file at the
+     * library root with no album tag at all.
+     */
+    private fun albumOf(row: PreviewRow): String {
+        val cellAlbum = row.cells.entries
+            .firstOrNull { (tagName, _) -> tagName.equals("Album", ignoreCase = true) }
+            ?.value?.let { if (it.value.isNotEmpty()) it.value else it.oldValue }
+        if (!cellAlbum.isNullOrEmpty()) return cellAlbum
+        val item = scanned.firstOrNull { it.item.id == row.itemId }?.item
+        val tagAlbum = item?.valueFor("Album", "TALB")
+        if (!tagAlbum.isNullOrEmpty()) return tagAlbum
+        val relativePath = scanned.firstOrNull { it.item.id == row.itemId }?.relativePath ?: ""
+        val topFolder = relativePath.substringBefore('/', missingDelimiterValue = "")
+        return topFolder.ifEmpty { "(no album)" }
+    }
+
+    /** One file's block in the preview: a header row plus its tag cells. */
+    private fun renderPreviewRow(row: PreviewRow) {
+        // Header row: file name plus a play button. Playing hands the
+        // document URI to the system's audio players read-only — the
+        // file is opened, never written, by this app.
+        val header = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, dp(10), 0, 0)
+        }
+        header.addView(TextView(this).apply {
+            text = row.displayName
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            setOnLongClickListener { playFile(row.itemId); true }
+        })
+        header.addView(smallButton("▶") { playFile(row.itemId) })
+        previewBox.addView(header)
+
+        for ((tagName, cell) in row.cells) {
+            val selectedManual = cell.candidates.getOrNull(cell.selected)?.manual == true
+            val label = buildString {
+                append("$tagName: ")
+                if (cell.oldValue.isEmpty()) append("(empty)") else append(displayValueOf(cell, cell.oldValue))
+                append(" → ")
+                append(displayValueOf(cell, cell.value))
+                if (cell.hasMultiple) append("  (${cell.candidates.size} values — tap to choose)")
+                if (!cell.changed) append("  (no change)")
+                if (selectedManual) append("  ✎ manual edit")
+            }
+            previewBox.addView(TextView(this).apply {
+                text = label
+                setPadding(dp(12), dp(1), 0, dp(1))
+                // A hand-typed value is drawn bold so manual edits stand
+                // out from layer-produced values at a glance.
+                if (selectedManual) setTypeface(null, android.graphics.Typeface.BOLD)
+                // Every cell is tappable: the dialog offers the candidate
+                // list, a hand edit, and (when one exists) a revert.
+                setOnClickListener { showCellDialog(row.itemId, tagName) }
+            })
+        }
+    }
+
+    /**
+     * How a cell value is shown. Cover-art cells carry an opaque sync
+     * token instead of text (see the engine's Sync.kt) — the user sees
+     * the presence marker, never the token.
+     */
+    private fun displayValueOf(cell: Cell, value: String): String =
+        if (cell.frame == "APIC" && value.isNotEmpty()) COVER_PRESENT else value
+
+    /** Play a scanned file in the system's audio player (read-only). */
+    private fun playFile(itemId: String) {
+        val file = scanned.firstOrNull { it.item.id == itemId } ?: return
+        val intent = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(file.uri, "audio/*")
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        try {
+            startActivity(Intent.createChooser(intent, "Play ${file.item.displayName}"))
+        } catch (e: ActivityNotFoundException) {
+            showMessage("Play", "No audio player app is available to play this file.")
+        }
     }
 
     private fun setStatus(message: String) {
@@ -408,34 +663,49 @@ class MainActivity : ComponentActivity() {
 
     private suspend fun addCsvLayers(uris: List<Uri>) {
         for (uri in uris) {
-            takeGrant(uri)
-            val id = uri.toString()
-            if (layers.any { it is CsvSource && it.csv.id == id }) continue
-            try {
-                val (layer, savedRoles) = runIo("Reading ${displayName(uri)}…") {
-                    val (headings, rows) = contentResolver.openInputStream(uri)?.use { CsvParser.parse(it) }
-                        ?: throw IllegalStateException("Could not open the file")
-                    val csv = CsvLayer(id, displayName(uri), headings, rows)
-                    csv to savedRolesFor(id)
-                }
-                // Roles remembered from a previous session with this file win.
-                if (savedRoles != null) {
-                    for (tag in layer.tags) savedRoles[tag.name]?.let { tag.role = it }
-                }
-                layers += CsvSource(layer)
-            } catch (e: Exception) {
-                showMessage("Could not add CSV", e.message ?: e.toString())
-            }
+            loadCsvSource(uri)?.let { layers += it }
         }
         preview = null
         saveState()
         renderAll()
     }
 
+    /**
+     * Load one CSV document as a layer source, or return null (after
+     * telling the user) when it cannot be read or is already loaded.
+     *
+     * The URI may be a SAF document URI from a picker, or a file:// URI
+     * for a share-sheet import copied into app-private storage — the
+     * content resolver opens both, and the copy is what lets an imported
+     * layer survive restarts without any grant at all.
+     */
+    private suspend fun loadCsvSource(uri: Uri): CsvSource? {
+        takeGrant(uri)
+        val id = uri.toString()
+        if (layers.any { it is CsvSource && it.csv.id == id }) return null
+        return try {
+            val (layer, savedRoles) = runIo("Reading ${displayName(uri)}…") {
+                val (headings, rows) = contentResolver.openInputStream(Uri.parse(id))?.use { CsvParser.parse(it) }
+                    ?: throw IllegalStateException("Could not open the file")
+                val csv = CsvLayer(id, displayName(uri), headings, rows)
+                csv to savedRolesFor(id)
+            }
+            // Roles remembered from a previous session with this file win.
+            if (savedRoles != null) {
+                for (tag in layer.tags) savedRoles[tag.name]?.let { tag.role = it }
+            }
+            CsvSource(layer)
+        } catch (e: Exception) {
+            showMessage("Could not add CSV", e.message ?: e.toString())
+            null
+        }
+    }
+
     private fun setLayerIncluded(index: Int, included: Boolean) {
         when (val layer = layers[index]) {
             is CsvSource -> layer.csv.included = included
             is FilenamePatternSource -> layers[index] = layer.copy(included = included)
+            is ValuesSource -> layers[index] = layer.copy(included = included)
         }
         preview = null
         saveState()
@@ -469,6 +739,12 @@ class MainActivity : ComponentActivity() {
                     "always have the Write role. See Help → Filename patterns.",
             )
             is CsvSource -> showRolesDialog(layer.csv)
+            is ValuesSource -> showMessage(
+                layer.name,
+                "These values were computed by another feature (tag sync) and are applied " +
+                    "through the normal preview, change log and undo, like any other layer. " +
+                    "The layer itself is not saved: re-run the feature to rebuild it.",
+            )
         }
     }
 
@@ -565,6 +841,10 @@ class MainActivity : ComponentActivity() {
                     put("pattern", layer.pattern)
                     put("included", layer.included)
                 })
+                // A values layer (tag sync) holds values computed from a
+                // scan of another folder; it cannot be reloaded from
+                // saved state, so it is deliberately not persisted.
+                is ValuesSource -> Unit
             }
         }
         prefs.edit()
@@ -598,7 +878,12 @@ class MainActivity : ComponentActivity() {
     private fun restoreState() {
         treeUri = prefs.getString("treeUri", null)?.let { Uri.parse(it) }
         treeName = prefs.getString("treeName", "") ?: ""
-        val array = savedLayersJson() ?: return
+        val array = savedLayersJson() ?: run {
+            // Nothing saved: restore is trivially complete, so any work
+            // the launching intent handed over can start now.
+            afterRestore()
+            return
+        }
         // The saved list mixes CSV layers and pattern layers in run order.
         // Patterns need no loading; CSVs must be re-read (their grants
         // persist), after which the combined list is rebuilt in the exact
@@ -622,6 +907,7 @@ class MainActivity : ComponentActivity() {
                 }
             }
             renderAll()
+            afterRestore()
             return
         }
         lifecycleScope.launch {
@@ -641,12 +927,19 @@ class MainActivity : ComponentActivity() {
             layers.clear()
             layers.addAll(rebuilt)
             renderAll()
+            afterRestore()
         }
     }
 
     // ------------------------------------------------------------------
     // Scanning
     // ------------------------------------------------------------------
+
+    /** The outcome of scanning one folder tree: its files plus per-file errors. */
+    private data class ScanOutcome(
+        val files: List<ScannedFile>,
+        val errors: List<String>,
+    )
 
     /**
      * Walk the picked folder and read every MP3's tags. Reading pulls only
@@ -656,9 +949,24 @@ class MainActivity : ComponentActivity() {
      */
     private suspend fun scanFolder(): List<ScannedFile> {
         val uri = treeUri ?: return emptyList()
-        return runIo("Scanning $treeName…") {
-            val root = DocumentFile.fromTreeUri(this@MainActivity, uri)
-                ?: throw IllegalStateException("The picked folder is no longer available — pick it again.")
+        val outcome = scanTree(uri, treeName)
+        scanErrors = outcome.errors
+        return outcome.files
+    }
+
+    /**
+     * Scan ANY folder tree (the working folder, or tag sync's source
+     * folder) the same way: walk it, read each MP3's text tags AND cover
+     * presence in one pass ([Id3Reader.readScan] — presence only, the
+     * image bytes are never loaded by a scan), and report unreadable
+     * files as errors instead of stopping. This function touches no
+     * activity state, so a sync source scan cannot disturb the working
+     * folder's scan or its error list.
+     */
+    private suspend fun scanTree(tree: Uri, label: String): ScanOutcome {
+        return runIo("Scanning $label…") {
+            val root = DocumentFile.fromTreeUri(this@MainActivity, tree)
+                ?: throw IllegalStateException("The folder is no longer available — pick it again.")
             val docs = mutableListOf<Pair<DocumentFile, String>>()
             fun walk(dir: DocumentFile, prefix: String) {
                 for (child in dir.listFiles()) {
@@ -673,40 +981,46 @@ class MainActivity : ComponentActivity() {
             walk(root, "")
             val errors = mutableListOf<String>()
             val result = docs.map { (doc, relativePath) ->
-                val tags = try {
-                    contentResolver.openInputStream(doc.uri)?.use { Id3Reader.readTags(it) }
+                val scan = try {
+                    contentResolver.openInputStream(doc.uri)?.use { Id3Reader.readScan(it) }
                         ?: throw IllegalStateException("Could not open file")
                 } catch (e: Exception) {
                     // Fallback: temp copy + jaudiotagger. A failure here too
                     // means the file is unreadable; report it, don't stop.
                     try {
-                        readTagsViaTempCopy(doc.uri)
+                        readScanViaTempCopy(doc.uri)
                     } catch (e2: Exception) {
                         errors += "${doc.name}: ${e2.message ?: "unreadable"}"
-                        emptyMap()
+                        Id3Reader.TagScan(emptyMap(), hasCover = false)
                     }
                 }
                 ScannedFile(
-                    item = Mp3Item(doc.uri.toString(), doc.name ?: relativePath, tags),
+                    item = Mp3Item(
+                        doc.uri.toString(), doc.name ?: relativePath, scan.tags,
+                        hasCover = scan.hasCover,
+                    ),
                     uri = doc.uri,
                     relativePath = relativePath,
                     size = doc.length(),
                     mtime = doc.lastModified(),
                 )
             }
-            scanErrors = errors
-            result
+            ScanOutcome(result, errors)
         }
     }
 
     /** Read tags by copying one document to a temp file for jaudiotagger. */
-    private fun readTagsViaTempCopy(uri: Uri): Map<String, String> {
+    private fun readTagsViaTempCopy(uri: Uri): Map<String, String> =
+        readScanViaTempCopy(uri).tags
+
+    /** The [readTagsViaTempCopy] fallback, also reporting cover presence. */
+    private fun readScanViaTempCopy(uri: Uri): Id3Reader.TagScan {
         val temp = File.createTempFile("mp3tagger-read", ".mp3", cacheDir)
         try {
             contentResolver.openInputStream(uri)?.use { input ->
                 temp.outputStream().use { input.copyTo(it) }
             } ?: throw IllegalStateException("Could not open file")
-            return JauTagIO.readTags(temp)
+            return Id3Reader.TagScan(JauTagIO.readTags(temp), JauTagIO.hasArtwork(temp))
         } finally {
             temp.delete()
         }
@@ -754,7 +1068,8 @@ class MainActivity : ComponentActivity() {
             } else {
                 candidate.sourceName
             }
-            (if (candidate.value.isEmpty()) "(empty)" else candidate.value) + "   —  " + origin
+            (if (candidate.value.isEmpty()) "(empty)" else displayValueOf(cell, candidate.value)) +
+                "   —  " + origin
         }.toTypedArray()
         AlertDialog.Builder(this)
             .setTitle("$tagName — choose a value")
@@ -765,6 +1080,101 @@ class MainActivity : ComponentActivity() {
             }
             .setNegativeButton("Cancel", null)
             .show()
+    }
+
+    /**
+     * The per-cell dialog behind every tappable preview cell: the
+     * candidate list (when a cell has several values), a hand edit, and
+     * a revert for an existing hand edit.
+     *
+     * A hand edit is recorded through [Cell.setManualEdit], which makes
+     * it an ordinary selected candidate — Apply, the change log and
+     * snapshot undo all treat it like any other value, with its source
+     * recorded as "manual edit". Typing back exactly the value already
+     * selected is a no-op rather than a pointless manual candidate.
+     *
+     * Cover-art cells are the exception: their "value" is a reference
+     * to another file's artwork, not text, so there is nothing to type —
+     * the dialog explains where the art comes from and offers only the
+     * candidate choice (when there is one).
+     */
+    private fun showCellDialog(itemId: String, tagName: String) {
+        val current = preview ?: return
+        val row = current.rowForItem(itemId) ?: return
+        val cell = row.cells[tagName] ?: return
+
+        if (cell.frame == "APIC") {
+            val builder = AlertDialog.Builder(this)
+                .setTitle(tagName)
+                .setMessage(
+                    "Cover art is an image, not text, so it cannot be typed in.\n\n" +
+                        "This change copies the cover from the matching file in the sync " +
+                        "source folder when you Apply. The file it comes from is read at " +
+                        "that moment; nothing is copied now.",
+                )
+                .setNegativeButton("Cancel", null)
+            if (cell.hasMultiple) {
+                builder.setPositiveButton("Choose value…") { _, _ ->
+                    showCandidateChooser(itemId, tagName)
+                }
+            } else {
+                builder.setPositiveButton("OK", null)
+            }
+            builder.show()
+            return
+        }
+
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(16), dp(8), dp(16), dp(0))
+        }
+        container.addView(TextView(this).apply {
+            text = "Now: ${if (cell.oldValue.isEmpty()) "(empty)" else cell.oldValue}\n" +
+                "Will write: ${if (cell.value.isEmpty()) "(empty)" else cell.value}"
+        })
+        val input = EditText(this).apply {
+            setText(cell.value)
+            setSelection(text.length)
+            hint = "Type a value to use instead"
+        }
+        container.addView(input)
+
+        val builder = AlertDialog.Builder(this)
+            .setTitle(tagName)
+            .setView(container)
+            .setPositiveButton("Save edit") { _, _ ->
+                val typed = input.text.toString()
+                if (typed != cell.value) {
+                    cell.setManualEdit(typed)
+                    renderPreview()
+                }
+            }
+            .setNegativeButton("Cancel", null)
+        val dialog = builder.create()
+
+        // Actions that must close this dialog and continue elsewhere in
+        // the preview live inside the view: an AlertDialog gets only one
+        // neutral button, and this dialog can need both of these.
+        if (cell.hasMultiple) {
+            container.addView(Button(this).apply {
+                text = "Choose from ${cell.candidates.size} values…"
+                setOnClickListener {
+                    dialog.dismiss()
+                    showCandidateChooser(itemId, tagName)
+                }
+            })
+        }
+        if (cell.manualCandidate != null) {
+            container.addView(Button(this).apply {
+                text = "Revert edit"
+                setOnClickListener {
+                    cell.clearManualEdit()
+                    dialog.dismiss()
+                    renderPreview()
+                }
+            })
+        }
+        dialog.show()
     }
 
     // ------------------------------------------------------------------
@@ -818,8 +1228,18 @@ class MainActivity : ComponentActivity() {
             val snapshots = changedRows.mapNotNull { row ->
                 val file = byId[row.itemId] ?: return@mapNotNull null
                 try {
+                    // A row whose cover art changes must snapshot the old
+                    // APIC frame too, or undo could not restore it — that
+                    // is exactly what readRawBlock's includeArtwork flag
+                    // is for. Rows without a cover change keep the small
+                    // artwork-free snapshot as before. (The verbatim
+                    // fallback below includes every frame by definition,
+                    // so cover rows are covered there as well.)
+                    val changesCover = row.cells.values.any { it.changed && it.frame == "APIC" }
                     val block = try {
-                        contentResolver.openInputStream(file.uri)?.use { Id3Reader.readRawBlock(it) }
+                        contentResolver.openInputStream(file.uri)?.use {
+                            Id3Reader.readRawBlock(it, includeArtwork = changesCover)
+                        }
                     } catch (e: Exception) {
                         // Unusual headers: keep the whole original block
                         // verbatim rather than skipping the snapshot.
@@ -837,17 +1257,37 @@ class MainActivity : ComponentActivity() {
             // 3) Writes.
             for (row in changedRows) {
                 val file = byId[row.itemId] ?: continue
-                val changes = row.cells.values.filter { it.changed }.map { cell ->
+                val changedCells = row.cells.values.filter { it.changed }
+                // Cover art is not a text change: its cell value is a sync
+                // token naming the SOURCE file, resolved to that file's
+                // artwork bytes here, at apply time, and written through
+                // the same temp-copy machinery as the text changes.
+                val coverCell = changedCells.firstOrNull { it.frame == "APIC" }
+                val changes = changedCells.filter { it.frame != "APIC" }.map { cell ->
                     TagChange(cell.frame, cell.tagName, cell.value)
                 }
-                if (changes.isEmpty()) continue
+                if (changes.isEmpty() && coverCell == null) continue
                 try {
-                    writeOneFile(file.uri, changes)
+                    val artwork = coverCell?.let { cell ->
+                        val sourceId = coverTokenSourceId(cell.value)
+                            ?: throw IllegalStateException("Cover change has no source file to copy from")
+                        readSourceArtwork(sourceId)
+                            ?: throw IllegalStateException("Could not read the cover art from the sync source file")
+                    }
+                    writeOneFile(file.uri, changes, artwork)
                     filesWritten++
-                    for (cell in row.cells.values.filter { it.changed }) {
+                    for (cell in changedCells) {
+                        // The log's Source column is the selected
+                        // candidate's source name ("manual edit" for a
+                        // hand edit). Cover values are shown as the
+                        // presence marker, never the internal token.
+                        val source = cell.candidates.getOrNull(cell.selected)?.sourceName ?: ""
                         logRows += ChangeLog.row(
                             logStamp, file.item.displayName, cell.tagName,
-                            cell.frame, cell.oldValue, cell.value,
+                            cell.frame,
+                            displayValueOf(cell, cell.oldValue),
+                            displayValueOf(cell, cell.value),
+                            source,
                         )
                         tagsWritten++
                     }
@@ -878,14 +1318,39 @@ class MainActivity : ComponentActivity() {
         setStatus("Applied $tagsWritten tag(s). Undo is available from \"Undo last run\".")
     }
 
-    /** Rewrite one document's tags via a temp file + jaudiotagger. */
-    private fun writeOneFile(uri: Uri, changes: List<TagChange>) {
+    /**
+     * Read the artwork bytes of one sync SOURCE file, through the same
+     * temp-copy machinery as every other jaudiotagger read: the source
+     * document is copied to a temp file (read-only — the source library
+     * is never written) and its first cover image is extracted.
+     */
+    private fun readSourceArtwork(sourceItemId: String): CoverArtwork? {
+        val source = syncSourceById[sourceItemId] ?: return null
+        val temp = File.createTempFile("mp3tagger-cover", ".mp3", cacheDir)
+        try {
+            contentResolver.openInputStream(source.uri)?.use { input ->
+                temp.outputStream().use { input.copyTo(it) }
+            } ?: throw IllegalStateException("Could not open the sync source file")
+            return JauTagIO.readArtwork(temp)
+        } finally {
+            temp.delete()
+        }
+    }
+
+    /**
+     * Rewrite one document's tags via a temp file + jaudiotagger. When
+     * [artwork] is non-null the file's cover art is replaced in the same
+     * temp copy, before the result is streamed back — one write-back per
+     * file either way.
+     */
+    private fun writeOneFile(uri: Uri, changes: List<TagChange>, artwork: CoverArtwork? = null) {
         val temp = File.createTempFile("mp3tagger-write", ".mp3", cacheDir)
         try {
             contentResolver.openInputStream(uri)?.use { input ->
                 temp.outputStream().use { input.copyTo(it) }
             } ?: throw IllegalStateException("Could not open file for writing")
-            JauTagIO.writeTags(temp, changes)
+            if (changes.isNotEmpty() || artwork == null) JauTagIO.writeTags(temp, changes)
+            if (artwork != null) JauTagIO.writeArtwork(temp, artwork)
             contentResolver.openOutputStream(uri, "wt")?.use { out ->
                 temp.inputStream().use { it.copyTo(out) }
             } ?: throw IllegalStateException("Could not write file back")
@@ -1046,6 +1511,514 @@ class MainActivity : ComponentActivity() {
             )
         } catch (e: Exception) {
             showMessage("Append to existing CSV", e.message ?: "The merge failed.")
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Round 2: shared scan helper for the read-only tools and sync
+    // ------------------------------------------------------------------
+
+    /**
+     * Make sure the working folder has been scanned, scanning it now if
+     * needed. Returns false (after telling the user) when there is no
+     * folder to scan.
+     */
+    private suspend fun ensureScanned(): Boolean {
+        if (treeUri == null) {
+            showMessage("No folder", "Pick your music folder first.")
+            return false
+        }
+        if (scanned.isEmpty()) scanned = scanFolder()
+        return true
+    }
+
+    /** Hand plain text to the share sheet (reports are shared this way). */
+    private fun shareText(subject: String, text: String) {
+        val intent = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_SUBJECT, subject)
+            putExtra(Intent.EXTRA_TEXT, text)
+        }
+        try {
+            startActivity(Intent.createChooser(intent, subject))
+        } catch (e: ActivityNotFoundException) {
+            showMessage(subject, "No app is available to share text with.")
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Round 2: tag sync from another folder
+    // ------------------------------------------------------------------
+
+    private fun syncClicked() {
+        if (busy) return
+        if (treeUri == null) {
+            showMessage("Sync tags", "Pick your music folder first — it is the folder sync writes to (through the preview).")
+            return
+        }
+        pickSyncTree.launch(null)
+    }
+
+    /**
+     * Scan the picked SOURCE folder, pair it with the working folder's
+     * scan by relative path, and let the user choose what to copy. The
+     * source folder is only ever read.
+     */
+    private suspend fun startSyncWith(sourceTree: Uri) {
+        try {
+            if (!ensureScanned()) return
+            val sourceName = DocumentFile.fromTreeUri(this, sourceTree)?.name ?: "source folder"
+            val sourceScanned = scanTree(sourceTree, sourceName).files
+            if (sourceScanned.isEmpty()) {
+                showMessage("Sync tags", "No MP3 files were found in that folder.")
+                return
+            }
+            val plan = pairLibraries(
+                sourceFiles = sourceScanned.map { it.item },
+                targetFiles = scanned.map { it.item },
+                sourceRelativePaths = sourceScanned.associate { it.item.id to it.relativePath },
+                targetRelativePaths = scanned.associate { it.item.id to it.relativePath },
+            )
+            if (plan.pairs.isEmpty()) {
+                showMessage(
+                    "Sync tags",
+                    "No files paired up. Sync pairs files by their path relative to each " +
+                        "folder, so the source folder must mirror this folder's layout.\n\n" +
+                        "${sourceScanned.size} source file(s) and ${scanned.size} file(s) " +
+                        "here were left unpaired.",
+                )
+                return
+            }
+            showSyncOptionsDialog(plan, sourceScanned)
+        } catch (e: Exception) {
+            showMessage("Sync tags", e.message ?: "The sync scan failed.")
+        }
+    }
+
+    /** Pairing summary + which tags (and cover art) to copy, before any preview is built. */
+    private fun showSyncOptionsDialog(
+        plan: com.devxen.mp3csvtagger.engine.SyncPlan,
+        sourceScanned: List<ScannedFile>,
+    ) {
+        val tags = defaultSyncTags(plan, sourceScanned.map { it.item })
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(16), dp(8), dp(16), dp(0))
+        }
+        container.addView(TextView(this).apply {
+            text = "Paired ${plan.pairs.size} file(s) by relative path.\n" +
+                "${plan.unpairedSource.size} source file(s) have no match in this folder.\n" +
+                "${plan.unpairedTarget.size} file(s) in this folder have no match in the source.\n\n" +
+                "Tick the tags to copy. A tag is copied only where the source value is " +
+                "non-empty and differs — sync never erases a value here with an empty one " +
+                "from the source, and unpaired files are never touched."
+        })
+        val tagChecks = tags.map { tagName ->
+            CheckBox(this).apply {
+                text = tagName
+                isChecked = true
+            }.also { container.addView(it) }
+        }
+        val coverCheck = CheckBox(this).apply {
+            text = COVER_TAG_NAME
+            isChecked = true
+        }
+        container.addView(coverCheck)
+
+        AlertDialog.Builder(this)
+            .setTitle("Sync tags from another folder")
+            .setView(ScrollView(this).apply { addView(container) })
+            .setPositiveButton("Build preview") { _, _ ->
+                val selected = tagChecks.filter { it.isChecked }.map { it.text.toString() }
+                lifecycleScope.launch {
+                    buildSyncPreview(plan, sourceScanned, selected, coverCheck.isChecked)
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    /**
+     * Turn the chosen sync options into a [ValuesSource] layer named
+     * "tag sync" and build the ordinary preview with it, so the user
+     * reviews every proposed change and Apply / change log / snapshot
+     * undo work exactly as for any other layer.
+     */
+    private suspend fun buildSyncPreview(
+        plan: com.devxen.mp3csvtagger.engine.SyncPlan,
+        sourceScanned: List<ScannedFile>,
+        selectedTags: List<String>,
+        includeCover: Boolean,
+    ) {
+        val values = withContext(Dispatchers.Default) {
+            buildSyncValues(
+                plan = plan,
+                sourceFiles = sourceScanned.map { it.item },
+                targetFiles = scanned.map { it.item },
+                tags = selectedTags,
+                includeCover = includeCover,
+            )
+        }
+        if (values.isEmpty()) {
+            showMessage(
+                "Sync tags",
+                "No differences to copy: for the ticked tags, every paired file here " +
+                    "already matches the source (or the source value is empty).",
+            )
+            return
+        }
+        // Kept for the apply step: a cover cell's token names its source
+        // file, whose artwork bytes are read only if that file is written.
+        syncSourceById = sourceScanned.associateBy { it.item.id }
+        // A re-run replaces the previous sync layer instead of stacking a
+        // second one whose values were computed from an older scan.
+        layers.removeAll { it is ValuesSource && it.name == SYNC_SOURCE_NAME }
+        layers += ValuesSource(SYNC_SOURCE_NAME, values)
+        preview = null
+        saveState()
+        renderAll()
+        buildPreviewClicked()
+    }
+
+    // ------------------------------------------------------------------
+    // Round 2: consistency check (read-only)
+    // ------------------------------------------------------------------
+
+    private fun consistencyClicked() {
+        if (busy) return
+        lifecycleScope.launch {
+            if (!ensureScanned()) return@launch
+            val input = EditText(this@MainActivity).apply {
+                setText("{Artist}/{Album}/{Track} - {Title}")
+                setSelection(text.length)
+            }
+            val container = LinearLayout(this@MainActivity).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(dp(16), dp(8), dp(16), dp(0))
+                addView(TextView(this@MainActivity).apply {
+                    text = "Compare each file's tags with the values its folder and file " +
+                        "names claim, using this filename pattern. This only reports " +
+                        "disagreements — it never changes a tag."
+                })
+                addView(input)
+            }
+            AlertDialog.Builder(this@MainActivity)
+                .setTitle("Consistency check")
+                .setView(container)
+                .setPositiveButton("Run check") { _, _ ->
+                    val pattern = input.text.toString().trim()
+                    if (pattern.isEmpty()) return@setPositiveButton
+                    lifecycleScope.launch {
+                        val result = withContext(Dispatchers.Default) {
+                            checkConsistency(
+                                files = scanned.map { it.item },
+                                relativePaths = scannedPaths(),
+                                pattern = pattern,
+                            )
+                        }
+                        showConsistencyResults(pattern, result)
+                    }
+                }
+                .setNegativeButton("Cancel", null)
+                .show()
+        }
+    }
+
+    private fun showConsistencyResults(
+        pattern: String,
+        result: com.devxen.mp3csvtagger.engine.ConsistencyResult,
+    ) {
+        val byId = scanned.associateBy { it.item.id }
+        val report = buildString {
+            append("Consistency check\nPattern: $pattern\n\n")
+            append("Checked ${result.checked} file(s); ")
+            append("${result.unmatched.size} file(s) did not match the pattern and were not checked.\n")
+            append("${result.mismatches.size} mismatch(es).\n")
+            if (result.mismatches.isEmpty()) {
+                append("\nNo mismatches — the tags agree with the file layout everywhere the pattern matched.")
+            } else {
+                append("\n")
+                for (mismatch in result.mismatches) {
+                    val path = byId[mismatch.itemId]?.relativePath ?: mismatch.itemId
+                    val tagValue = mismatch.tagValue.ifEmpty { "(empty)" }
+                    append("• $path — ${mismatch.tag}: path says \"${mismatch.pathValue}\", tag says \"$tagValue\"\n")
+                }
+            }
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Consistency check")
+            .setMessage(report.trimEnd())
+            .setPositiveButton("Share report") { _, _ -> shareText("Consistency report", report) }
+            .setNegativeButton("Close", null)
+            .show()
+    }
+
+    // ------------------------------------------------------------------
+    // Round 2: library report (read-only)
+    // ------------------------------------------------------------------
+
+    private fun libraryReportClicked() {
+        if (busy) return
+        lifecycleScope.launch {
+            if (!ensureScanned()) return@launch
+            val report = withContext(Dispatchers.Default) {
+                val items = scanned.map { it.item }
+                buildString {
+                    append(renderCompletenessText(albumCompleteness(items)))
+                    append("\nDuplicates (same title and performer)\n")
+                    append("=====================================\n")
+                    val duplicates = duplicateGroups(items)
+                    if (duplicates.isEmpty()) {
+                        append("None found.\n")
+                    } else {
+                        for (group in duplicates) {
+                            append("• \"${group.title}\" — ${group.artist} (${group.itemIds.size} file(s))\n")
+                        }
+                    }
+                    for (tagName in listOf("Lead Performer", "Album", "Genre")) {
+                        val variants = variantGroups(items, tagName)
+                        if (variants.isEmpty()) continue
+                        append("\nSpelling variants — $tagName\n")
+                        append("=====================================\n")
+                        for (group in variants) {
+                            val spellings = group.spellings.keys.joinToString(" / ") { "\"$it\"" }
+                            val count = group.spellings.values.sumOf { it.size }
+                            append("• $spellings ($count file(s))\n")
+                        }
+                    }
+                }
+            }
+            AlertDialog.Builder(this@MainActivity)
+                .setTitle("Library report")
+                .setMessage(report.trimEnd())
+                .setPositiveButton("Share report") { _, _ -> shareText("Library report", report) }
+                .setNegativeButton("Close", null)
+                .show()
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Round 2: named jobs + launcher shortcuts
+    // ------------------------------------------------------------------
+
+    /** Where saved jobs live: one JSON file per job, app-private. */
+    private fun jobsDir(): File = File(filesDir, "jobs").apply { mkdirs() }
+
+    private fun jobFileName(name: String): String =
+        name.replace(Regex("[^A-Za-z0-9._-]"), "_") + ".json"
+
+    /** Every saved job on disk, paired with its file, sorted by name. */
+    private fun loadSavedJobFiles(): List<Pair<File, Job>> {
+        val dir = jobsDir()
+        val files = dir.listFiles { f -> f.isFile && f.name.endsWith(".json") } ?: return emptyList()
+        return files.mapNotNull { file ->
+            runCatching { file to Job.fromJsonString(file.readText(Charsets.UTF_8)) }.getOrNull()
+        }.sortedBy { it.second.name.lowercase() }
+    }
+
+    /** Every saved job, sorted by name. */
+    private fun loadSavedJobs(): List<Job> = loadSavedJobFiles().map { it.second }
+
+    private fun saveJobClicked() {
+        val input = EditText(this).apply { hint = "Job name" }
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(16), dp(8), dp(16), dp(0))
+            addView(TextView(this@MainActivity).apply {
+                text = "Save the current folder and layer setup under a name, so the " +
+                    "whole run can be rebuilt later in one tap (Jobs… or a launcher shortcut)."
+            })
+            addView(input)
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Save current job")
+            .setView(container)
+            .setPositiveButton("Save job") { _, _ ->
+                val name = input.text.toString().trim()
+                if (name.isEmpty()) return@setPositiveButton
+                val jobLayers = mutableListOf<JobLayer>()
+                for (layer in layers) {
+                    when (layer) {
+                        is CsvSource -> jobLayers += JobCsvLayer(
+                            csvUri = layer.csv.id,
+                            included = layer.csv.included,
+                            roles = layer.csv.tags.associate { it.name to it.role },
+                        )
+                        is FilenamePatternSource -> jobLayers += JobPatternLayer(
+                            pattern = layer.pattern,
+                            included = layer.included,
+                        )
+                        // Computed values (tag sync) belong to one scan of
+                        // another folder; a job cannot rebuild them, so
+                        // they are not part of a saved setup.
+                        is ValuesSource -> Unit
+                    }
+                }
+                // The alternative-name map is saved with the job by the
+                // engine model; this app resolves headings with the
+                // default map everywhere, so that is what the job records.
+                val job = Job(
+                    name = name,
+                    treeUri = treeUri?.toString() ?: "",
+                    layers = jobLayers,
+                )
+                File(jobsDir(), jobFileName(name)).writeText(job.toJsonString(), Charsets.UTF_8)
+                publishJobShortcuts(loadSavedJobs())
+                showMessage("Save current job", "Saved job \"$name\". Find it under Jobs…")
+                setStatus("Saved job \"$name\".")
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun showJobsDialog() {
+        val saved = loadSavedJobFiles()
+        if (saved.isEmpty()) {
+            showMessage("Jobs", "No saved jobs yet. Set up a folder and layers, then tap \"Save current job…\".")
+            return
+        }
+        val names = saved.map { it.second.name }.toTypedArray()
+        AlertDialog.Builder(this)
+            .setTitle("Jobs")
+            .setItems(names) { _, which ->
+                val (file, job) = saved[which]
+                AlertDialog.Builder(this)
+                    .setTitle(job.name)
+                    .setMessage(
+                        "Folder: ${job.treeUri.ifEmpty { "(none saved)" }}\n" +
+                            "Layers: ${job.layers.size}",
+                    )
+                    .setPositiveButton("Run") { _, _ ->
+                        lifecycleScope.launch { runJob(job) }
+                    }
+                    .setNegativeButton("Delete") { _, _ ->
+                        file.delete()
+                        publishJobShortcuts(loadSavedJobs())
+                        setStatus("Deleted job \"${job.name}\".")
+                    }
+                    .setNeutralButton("Cancel", null)
+                    .show()
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    /**
+     * Rebuild a saved job's state — folder, layers with their roles —
+     * then scan and build the ordinary preview, exactly as if the user
+     * had set it all up by hand.
+     */
+    private suspend fun runJob(job: Job) {
+        try {
+            if (job.treeUri.isNotEmpty()) {
+                treeUri = Uri.parse(job.treeUri)
+                treeName = DocumentFile.fromTreeUri(this, treeUri!!)?.name ?: "music folder"
+            }
+            layers.clear()
+            for (layer in job.layers) {
+                when (layer) {
+                    is JobCsvLayer -> loadCsvSource(Uri.parse(layer.csvUri))?.let { source ->
+                        source.csv.included = layer.included
+                        // The job's roles win over any remembered roles.
+                        for (tag in source.csv.tags) {
+                            layer.roles[tag.name]?.let { tag.role = it }
+                        }
+                        layers += source
+                    }
+                    is JobPatternLayer -> layers += FilenamePatternSource(
+                        pattern = layer.pattern,
+                        included = layer.included,
+                    )
+                }
+            }
+            scanned = emptyList()
+            preview = null
+            saveState()
+            renderAll()
+            setStatus("Running job \"${job.name}\"…")
+            buildPreviewClicked()
+        } catch (e: Exception) {
+            showMessage("Jobs", e.message ?: "The job could not be run.")
+        }
+    }
+
+    /**
+     * Publish up to four dynamic launcher shortcuts, one per saved job
+     * (first four by name). A shortcut relaunches the app with the
+     * [ACTION_RUN_JOB] action; onCreate/onNewIntent route it to [runJob].
+     */
+    private fun publishJobShortcuts(jobs: List<Job>) {
+        try {
+            val shortcuts = jobs.take(4).map { job ->
+                val intent = Intent(this, MainActivity::class.java).apply {
+                    action = ACTION_RUN_JOB
+                    putExtra(EXTRA_JOB_NAME, job.name)
+                }
+                val label = "Run ${job.name}".let {
+                    if (it.length > 25) it.take(24) + "…" else it
+                }
+                ShortcutInfoCompat.Builder(this, "job:${job.name}")
+                    .setShortLabel(label)
+                    .setLongLabel("Run job ${job.name}")
+                    .setIcon(IconCompat.createWithBitmap(jobShortcutIcon()))
+                    .setIntent(intent)
+                    .build()
+            }
+            ShortcutManagerCompat.setDynamicShortcuts(this, shortcuts)
+        } catch (e: Exception) {
+            // Shortcut publishing is best-effort (launchers may refuse);
+            // the Jobs… list inside the app always works.
+        }
+    }
+
+    /** A simple drawn icon for job shortcuts: a music note on a dark plate. */
+    private fun jobShortcutIcon(): Bitmap {
+        val size = 96
+        val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+        canvas.drawColor(Color.rgb(24, 24, 24))
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.WHITE
+            textSize = 56f
+            textAlign = Paint.Align.CENTER
+        }
+        canvas.drawText("♪", size / 2f, size / 2f + 20f, paint)
+        return bitmap
+    }
+
+    // ------------------------------------------------------------------
+    // Round 2: CSV files arriving through Open-with / the share sheet
+    // ------------------------------------------------------------------
+
+    /**
+     * Copy an incoming CSV (a VIEW data URI or a SEND stream) into
+     * app-private storage and add the COPY as a layer. The copy matters:
+     * the grant behind a shared/opened document is temporary, so a layer
+     * pointing at the original could stop working — the private copy
+     * keeps the layer (and its saved-state entry) working across
+     * restarts with no grant at all.
+     */
+    private suspend fun importSharedCsv(incoming: Uri) {
+        try {
+            val copy = runIo("Importing CSV…") {
+                val dir = File(filesDir, "imported_csv").apply { mkdirs() }
+                val rawName = displayName(incoming)
+                val sanitised = rawName.replace(Regex("[^A-Za-z0-9._-]"), "_")
+                val stem = sanitised.replace(Regex("(?i)\\.csv$"), "").ifEmpty { "shared" }
+                val target = File(dir, "$stem-${System.currentTimeMillis()}.csv")
+                val input = contentResolver.openInputStream(incoming)
+                    ?: throw IllegalStateException("Could not open the shared CSV")
+                input.use { stream -> target.outputStream().use { stream.copyTo(it) } }
+                target
+            }
+            val source = loadCsvSource(Uri.fromFile(copy)) ?: return
+            layers += source
+            preview = null
+            saveState()
+            renderAll()
+            setStatus("Imported CSV added as a layer: ${copy.name}")
+        } catch (e: Exception) {
+            showMessage("Import CSV", e.message ?: "The shared CSV could not be imported.")
         }
     }
 

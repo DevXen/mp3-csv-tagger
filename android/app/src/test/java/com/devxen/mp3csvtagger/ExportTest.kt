@@ -1,5 +1,6 @@
 package com.devxen.mp3csvtagger
 
+import com.devxen.mp3csvtagger.engine.ChangeLog
 import com.devxen.mp3csvtagger.engine.CsvParser
 import com.devxen.mp3csvtagger.engine.CsvWriter
 import com.devxen.mp3csvtagger.engine.Mp3Item
@@ -166,6 +167,27 @@ class ExportTest {
         assertEquals(1, result.summary.rowsKept)
         val (_, rows) = CsvParser.parse(result.csvText)
         assertEquals(3, rows.size)
+    }
+
+    @Test
+    fun changeLogHasTrailingSourceColumn() {
+        // Round 2 parity with the desktop log: the existing columns keep
+        // their order and positions, and "Source" (the selected
+        // candidate's source name — "manual edit" for hand edits) is
+        // appended last.
+        assertEquals(
+            listOf(
+                "Timestamp", "File", "Tag Name", "ID3 Frame",
+                "Original/Old Value", "New Value", "Source",
+            ),
+            ChangeLog.headers,
+        )
+        assertEquals(
+            listOf("2026/01/01 00:00:00", "one.mp3", "Genre", "TCON", "Rock", "Metal", "manual edit"),
+            ChangeLog.row(
+                "2026/01/01 00:00:00", "one.mp3", "Genre", "TCON", "Rock", "Metal", "manual edit",
+            ),
+        )
     }
 
     @Test
