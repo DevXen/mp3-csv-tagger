@@ -1,49 +1,66 @@
-# Android app — assessment and plan
+# Android app
 
-**Status: in development.** An Android companion is being built in this
-repo (see the `android/` folder); this page is the honest scope for
-taking the same workflow to Android, so it can be picked up as its own
-piece of work instead of being promised casually.
+**Status: shipped — v1.0.0.** The Android companion lives in
+[`android/`](../android/) and ships as the signed APK attached to the
+project's GitHub releases (`MP3CsvTagger-v1.0.0.apk`). It is a native
+Kotlin app that shares this project's format and rules: same CSV files,
+same Match/Write/Skip roles, same matching normalisation, same layered
+runs, same change-log format.
 
-## Why it is not just a repackage
+## What it does
 
-* Python/mutagen do not ship to Android in any supportable way for a
-  public app. The engine would be re-implemented against a native ID3
-  library — the standard choice is **jaudiotagger** (the library behind
-  most Android tag editors), from Kotlin.
-* Android does not give apps free rein over a music folder: the app must
-  use the **Storage Access Framework** (the user picks the music folder
-  once; the grant persists), and writes go through `DocumentFile`.
-  Android 13+ also splits media permissions, which matters for listing
-  files the user did not pick through SAF.
-* Neither point is hard; both mean the Android app is a **native
-  companion that shares the format**, not a port of this Python code.
+* **Pick a music folder** with Android's folder picker (SAF). The grant
+  persists; MP3s are found recursively. Files are never renamed, moved
+  or deleted — names and folder paths are only ever *read*.
+* **Tag reading** pulls just the ID3 block at the start of each file, so
+  scanning a big folder does not copy it. Files with unusual headers
+  fall back to a jaudiotagger read. A file with no ID3 header simply has
+  no tags yet — it is not an error.
+* **CSV layers** work exactly as on desktop: add one CSV (most jobs need
+  exactly one) or several, set each column's role, reorder, switch
+  layers off. Layer order, roles and picks are remembered.
+* **Filename-pattern layers** derive tags from folder/file names with
+  `{Tag}` patterns, e.g. `{Artist}/{Album}/{Track} - {Title}` — the same
+  patterns the desktop app uses.
+* **Preview** shows old → new for every matched file; where several
+  values compete for one tag, tap to choose (the last layer wins by
+  default). The preview can be exported as CSV.
+* **Apply** writes each changed file once (temp copy → jaudiotagger →
+  written back through SAF), preserving cover art and every frame it
+  does not touch. A run folder keeps the change log
+  (`mp3tag_YYYYMMDD_HHMMSS.log.csv`, the shared format) and the undo
+  snapshot.
+* **Undo (tag snapshot — no file copies)** stores only the changed
+  files' tag frames (cover art and private frames excluded, unless a
+  run itself changed a file's cover art). Undo restores those tags,
+  removes headers the run created, and skips files whose size or
+  modification time changed since the run, with an option to force.
+* **Export tags to CSV** — one row per MP3, one column per tag name:
+  a readable library record, and a round-trip editing format.
+* **Help** — an extensive built-in Help screen; the same text is in
+  [ANDROID_HELP.md](ANDROID_HELP.md).
 
-## What transfers unchanged
+No account, no network permission, no analytics. It is a file tool.
 
-* The CSV format, roles (Match/Write/Skip), the normalisation rule, and
-  layered CSVs — they are the product; see `docs/CSV_FORMAT.md`.
-* The project file: it is plain JSON, so a project made on desktop can be
-  opened on the phone as-is.
-* The change-log CSV format, so logs mean the same thing everywhere.
-* The sample CSVs and the behaviour pinned by `tests/` — the Android
-  implementation should be tested against the same fixtures.
+## Building
 
-## Shape of the app (Kotlin, single module to start)
+```bash
+cd android
+./build.sh                 # signed release APK (assembleRelease)
+./build.sh testDebugUnitTest
+```
 
-1. **Pick music folder** (SAF) → list MP3s, read tags with jaudiotagger
-   off the main thread (coroutines; the same hash-index matching applies
-   verbatim, it is ~50 lines).
-2. **Pick CSVs, set roles** — the desktop CSV tab as a phone screen:
-   layer list, per-column role chips.
-3. **Preview** — list of matched files with old → new; tap a
-   multi-candidate tag to choose a value.
-4. **Apply** — write via jaudiotagger, save the change log into the
-   folder the user picks.
-5. No account, no network, no analytics — it is a file tool.
+The engine (matching, layers, preview, export) is plain Kotlin with no
+Android dependencies and is covered by JVM unit tests that pin the same
+behaviour as the desktop test-suite, including the tag-snapshot
+capture/restore cycle. The release signing key lives outside the repo;
+a clone without it builds with the debug key (the build file says so).
 
-Estimated at a small app (the engine logic is already proven here); the
-risks are all platform behaviour (SAF write quirks on some OEM builds,
-scoped-storage edge cases for SD cards), which is why it gets its own
-testing pass on real devices before release rather than shipping as a
-checkbox in this repo.
+## Not in the Android v1
+
+Feature parity is a direction, not a claim. The desktop app's role
+presets, library report (duplicates / spelling variants), cover-art
+column and MusicBrainz fill are not in the Android v1 — see
+[ROADMAP.md](../ROADMAP.md). The phone is also the honest proof gate
+for SAF behaviour across devices: the APK is build- and test-verified,
+and real-device behaviour is confirmed by using it.

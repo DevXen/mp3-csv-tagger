@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  MP3 CSV Tagger manifest.
+
+  Deliberately permission-free: every file the app touches is chosen by the
+  user through the Storage Access Framework (folder/CSV pickers), which
+  grants access per-URI without any manifest permission. No INTERNET
+  permission — the app has no network features at all.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application
+        android:allowBackup="true"
+        android:label="MP3 CSV Tagger"
+        android:supportsRtl="true"
+        android:theme="@android:style/Theme.Material.Light.NoActionBar">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <activity
+            android:name=".HelpActivity"
+            android:exported="false" />
+    </application>
+</manifest>

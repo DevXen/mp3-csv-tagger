@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.3.0 — 2026-10-15
+
+* **Android app (v1.0.0)** — a native Kotlin companion ships in
+  `android/`, released as `MP3CsvTagger-v1.0.0.apk`. Same CSV format,
+  roles, matching and layering as the desktop program: SAF folder
+  picking, per-column Match/Write/Skip roles, filename-pattern layers,
+  preview with candidate choice, apply with the shared change-log
+  format, tag-snapshot undo (no file copies), export tags to CSV, and
+  an extensive built-in Help screen (also in docs/ANDROID_HELP.md).
+  The engine is JVM-tested against the same scenarios as the desktop
+  suite. Feature parity items are tracked in ROADMAP.md.
+
 ## 1.2.0 — 2026-10-15
 
 * **Undo (tag snapshots)** — every Apply now writes a
