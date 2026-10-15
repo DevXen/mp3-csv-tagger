@@ -89,4 +89,11 @@ dependencies {
     implementation("net.jthink:jaudiotagger:3.0.1")
 
     testImplementation("junit:junit:4.13.2")
+    // The engine's job (de)serialisation uses org.json, which Android
+    // provides at runtime — but in local JVM unit tests the android.jar
+    // copy is a stub whose methods throw. The real org.json library as a
+    // TEST-ONLY dependency shadows the stub so the job format is tested
+    // against the genuine implementation; the shipped APK still uses
+    // the framework's built-in copy and gains no dependency.
+    testImplementation("org.json:json:20240303")
 }

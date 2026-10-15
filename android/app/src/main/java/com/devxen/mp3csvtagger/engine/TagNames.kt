@@ -77,6 +77,13 @@ object TagNames {
     ): String {
         val name = tagName.trim()
         if (name.isEmpty()) return "TXXX"
+        // Cover art is a pseudo-frame handled specially by the engine:
+        // the heading "Cover Art" means the APIC (embedded picture)
+        // frame, whose cell values are image references rather than
+        // text. (Same special case as the desktop's frame resolver;
+        // without it a cover column would degrade to a TXXX text frame
+        // literally named "Cover Art".)
+        if (name.equals("Cover Art", ignoreCase = true)) return "APIC"
         val upper = name.uppercase()
         if (upper.startsWith("TXXX:")) return "TXXX"
         if (upper.length == 4 && upper in knownFrames) return upper

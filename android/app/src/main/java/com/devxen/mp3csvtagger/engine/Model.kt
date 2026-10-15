@@ -68,6 +68,22 @@ data class Mp3Item(
     val id: String,
     val displayName: String,
     val tags: Map<String, String>,
+    /**
+     * True when the file carries embedded cover art (an APIC frame).
+     * The image bytes are deliberately NOT part of the scan — they are
+     * large, and tagging decisions (completeness, sync) only need to
+     * know art is present. Mirrors the desktop Mp3File.has_cover.
+     */
+    val hasCover: Boolean = false,
+    /**
+     * An opaque token identifying the file's cover image (a hash of
+     * the image bytes), supplied by the UI scan when it can compute
+     * one, or null when it cannot. The engine never interprets the
+     * token; [Sync] only compares tokens for equality to decide
+     * whether two paired files carry the *same* cover. Null means
+     * "unknown", never "no cover" — that is what [hasCover] says.
+     */
+    val coverKey: String? = null,
 ) {
     /** Current value for a CSV column, looked up by tag name, then by frame id. */
     fun valueFor(tagName: String, frame: String): String =

@@ -12,10 +12,35 @@ package com.devxen.mp3csvtagger.engine
  *    files' *effective* values, so a later layer can Match on a value an
  *    earlier layer is going to write.
  *
- * A [FilenamePatternLayer] can sit in the same layer list: instead of CSV
+ * A [FilenamePatternSource] can sit in the same layer list: instead of CSV
  * rows it derives each file's values from its own folder/file name, matched
- * per-file by construction.
+ * per-file by construction. So can a [ValuesSource]: ready-made values
+ * computed by another feature (tag sync), keyed by item id.
  */
+
+/**
+ * Display value used as a cover-art cell's "old value" when a file
+ * already has embedded art. The image bytes are never loaded for a
+ * preview; presence is all a change decision needs. (Same marker the
+ * desktop preview uses.)
+ */
+const val COVER_PRESENT = "[cover image]"
+
+/**
+ * Source name recorded on a candidate the user typed into the preview
+ * by hand (an inline manual edit). It shows up wherever a candidate's
+ * source is displayed — including the change log — so a hand-typed
+ * value is always distinguishable from a CSV value.
+ */
+const val MANUAL_SOURCE = "manual edit"
+
+/**
+ * Layer number for manual edits. Real layers are numbered by their
+ * position in the layer list, so a layer of a million sorts a manual
+ * edit after every value any layer could produce: the value the user
+ * typed most recently is the one that wins.
+ */
+const val MANUAL_LAYER = 1_000_000
 
 /** One value a CSV row (or pattern) wants to write, and where it came from. */
 data class Candidate(
@@ -23,6 +48,13 @@ data class Candidate(
     val sourceName: String,
     val sourceRow: Int,
     val layer: Int,
+    /**
+     * True only for a value the user typed into the preview by hand
+     * (see [Cell.setManualEdit]). Manual candidates are kept distinct
+     * from layered candidates so they can be replaced or cleared
+     * without disturbing the values the layers produced.
+     */
+    val manual: Boolean = false,
 )
 
 /** All candidate values for one (file, tag), with one selected. */
@@ -50,6 +82,43 @@ class Cell(
         }
         candidates += candidate
         selected = candidates.lastIndex
+    }
+
+    /**
+     * The manual-edit candidate on this cell, or null. At most one
+     * manual candidate ever exists per cell — [setManualEdit] replaces
+     * it rather than stacking edits.
+     */
+    val manualCandidate: Candidate? get() = candidates.firstOrNull { it.manual }
+
+    /**
+     * Record a value the user typed into this cell by hand.
+     *
+     * Any previous manual candidate is dropped, the new value is
+     * appended as a manual candidate (source [MANUAL_SOURCE], layer
+     * [MANUAL_LAYER]) and selected. Because a manual edit is an
+     * ordinary selected candidate from this point on, Apply, the
+     * change log and snapshot undo all handle it with no special
+     * cases — the log simply records its source as "manual edit".
+     */
+    fun setManualEdit(value: String) {
+        candidates.removeAll { it.manual }
+        candidates += Candidate(value, MANUAL_SOURCE, -1, MANUAL_LAYER, manual = true)
+        selected = candidates.lastIndex
+    }
+
+    /**
+     * Remove the manual edit, re-selecting the last remaining value.
+     *
+     * The candidates the layers produced are still on the cell, so
+     * clearing an edit falls back to the newest of them (the same
+     * value that would have been selected had the edit never
+     * happened). A no-op when the cell has no manual candidate.
+     */
+    fun clearManualEdit() {
+        if (manualCandidate == null) return
+        candidates.removeAll { it.manual }
+        selected = if (candidates.isEmpty()) 0 else candidates.lastIndex
     }
 }
 
@@ -80,8 +149,19 @@ class Preview(
     fun rowForItem(itemId: String): PreviewRow? = rows.firstOrNull { it.itemId == itemId }
 }
 
-/** A layer in the stack: either a CSV file or a filename-pattern source. */
-sealed interface LayerSource {
+/**
+ * A layer in the stack: a CSV file, a filename-pattern source, or a
+ * virtual values source.
+ *
+ * This is deliberately a plain interface, not a sealed one: layer kinds
+ * are added by engine work in their own changes, while the screens that
+ * hold a layer list are edited separately. A sealed type would make
+ * every exhaustive `when` over layers in already-shipped UI code fail
+ * to compile the moment the engine gained a kind — the UI adds its
+ * branches for a new kind when it learns to *present* that kind, and
+ * until then the kind simply has no row in the layer list.
+ */
+interface LayerSource {
     val name: String
     val included: Boolean
 }
@@ -106,6 +186,29 @@ data class FilenamePatternSource(
 ) : LayerSource {
     override val name: String get() = "Filename pattern: $pattern"
 }
+
+/**
+ * A virtual layer of ready-made write values, keyed by item id:
+ * `itemId -> (tag name -> value)`.
+ *
+ * This is the generic path for any feature that computes values itself
+ * instead of reading them from a CSV or a file name — tag sync
+ * (see [buildSyncValues]) is the first user. Feeding the values through
+ * the ordinary preview machinery means the user sees every proposed
+ * change, can pick candidates and override them with manual edits, and
+ * gets the usual change log and snapshot undo on apply — no feature
+ * built on this needs its own apply path. It mirrors the desktop
+ * preview's value-layer helper (`add_value_layer`).
+ *
+ * Values are taken exactly as given: deciding *which* values are worth
+ * proposing (non-empty, different from the file's current value, …) is
+ * the producing feature's job, not this layer's.
+ */
+data class ValuesSource(
+    override val name: String,
+    val valuesByItemId: Map<String, Map<String, String>>,
+    override val included: Boolean = true,
+) : LayerSource
 
 /**
  * Match a pattern against a relative path (folder names + file name).
@@ -199,7 +302,17 @@ fun buildPreview(
     fun addWrite(row: PreviewRow, item: Mp3Item, tagName: String, value: String, sourceName: String, sourceRow: Int, layer: Int) {
         val frame = TagNames.frameForTagName(tagName, alternativeNames)
         val cell = row.cells.getOrPut(tagName) {
-            Cell(tagName, frame, item.valueFor(tagName, frame))
+            // Cover art is not a text tag, so there is no stored text
+            // value to compare against: the "old value" is the presence
+            // marker when the file already has art (the desktop
+            // preview's rule), which also makes `changed` come out
+            // right for a cover replacement.
+            val oldValue = if (frame == "APIC") {
+                if (item.hasCover) COVER_PRESENT else ""
+            } else {
+                item.valueFor(tagName, frame)
+            }
+            Cell(tagName, frame, oldValue)
         }
         cell.addCandidate(Candidate(value, sourceName, sourceRow, layer))
         if (tagName !in writeTags) writeTags += tagName
@@ -255,6 +368,19 @@ fun buildPreview(
                         if (value.isNotEmpty()) {
                             addWrite(previewRow, item, tagName, value, source.name, 0, layer)
                         }
+                    }
+                }
+            }
+            is ValuesSource -> {
+                // Ready-made values keyed by item id. Ids that are not
+                // in this scan are skipped (the values were computed
+                // against some scan; a stale id must not invent a row
+                // for a file that is not here).
+                for ((itemId, values) in source.valuesByItemId) {
+                    val item = byId[itemId] ?: continue
+                    val previewRow = rowFor(itemId)
+                    for ((tagName, value) in values) {
+                        addWrite(previewRow, item, tagName, value, source.name, 0, layer)
                     }
                 }
             }
